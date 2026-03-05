@@ -45,7 +45,7 @@ export class AppConfig {}
 
 ### Publishing events (publisher mode)
 
-Inject `EventBrokerService` and call `eventBroadcast`:
+Inject `EventBrokerService` and call `broadcast`:
 
 ```ts
 import { Injectable } from "@tsed/di";
@@ -56,7 +56,7 @@ export class MyService {
   constructor(private eventBroker: EventBrokerService) {}
 
   async doSomething() {
-    await this.eventBroker.eventBroadcast("user.created", { userId: "123", name: "Alice" });
+    await this.eventBroker.broadcast("user.created", { userId: "123", name: "Alice" });
   }
 }
 ```
