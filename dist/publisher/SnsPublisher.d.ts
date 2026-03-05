@@ -2,7 +2,14 @@ import { EventBrokerConfig } from "../types/EventBrokerConfig";
 export declare const EVENT_BROKER_CONFIG: unique symbol;
 export interface SnsMessageBody {
     event_type: string;
+    event_id?: string;
     payload: unknown;
+}
+/** Payload shape passed to @OnBrokerEvent handlers: original payload with eventId injected. */
+export interface BrokerPayloadWithEventId<T = unknown> {
+    eventId: string;
+    data?: T;
+    [key: string]: unknown;
 }
 export declare class SnsPublisher {
     private config;

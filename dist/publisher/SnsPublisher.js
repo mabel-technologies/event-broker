@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SnsPublisher = exports.EVENT_BROKER_CONFIG = void 0;
 const client_sns_1 = require("@aws-sdk/client-sns");
 const di_1 = require("@tsed/di");
+const uuid_1 = require("uuid");
 exports.EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
 let SnsPublisher = class SnsPublisher {
     constructor(config) {
@@ -22,10 +23,13 @@ let SnsPublisher = class SnsPublisher {
         this.client = new client_sns_1.SNSClient({ region: config.region });
     }
     async publish(eventType, payload) {
+        const eventId = (0, uuid_1.v7)();
         const body = {
             event_type: eventType,
+            event_id: eventId,
             payload,
         };
+        console.info(`[event-broker] Broadcast | event_id=${eventId} payload=${JSON.stringify(payload)}`);
         const input = {
             TopicArn: this.config.sns.topicArn,
             Message: JSON.stringify(body),

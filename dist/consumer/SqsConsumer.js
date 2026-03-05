@@ -17,6 +17,7 @@ exports.SqsConsumer = void 0;
 const client_sqs_1 = require("@aws-sdk/client-sqs");
 const di_1 = require("@tsed/di");
 const event_emitter_1 = require("@tsed/event-emitter");
+const uuid_1 = require("uuid");
 const SnsPublisher_1 = require("../publisher/SnsPublisher");
 let SqsConsumer = class SqsConsumer {
     constructor(config, eventEmitter) {
@@ -80,13 +81,19 @@ let SqsConsumer = class SqsConsumer {
             await this.deleteMessage(message);
             return;
         }
-        const { event_type, payload } = parsed;
+        const { event_type, payload, event_id } = parsed;
         if (!event_type) {
             await this.deleteMessage(message);
             return;
         }
+        const eventId = event_id ?? (0, uuid_1.v7)();
+        const serviceName = process.env.SERVICE_NAME ?? "unknown";
+        console.info(`[event-broker] Event captured | event_id=${eventId} service_name=${serviceName}`);
+        const payloadWithEventId = typeof payload === "object" && payload !== null
+            ? { ...payload, eventId }
+            : { eventId, data: payload };
         try {
-            await this.eventEmitter.emitAsync(event_type, payload);
+            await this.eventEmitter.emitAsync(event_type, payloadWithEventId);
         }
         finally {
             await this.deleteMessage(message);
