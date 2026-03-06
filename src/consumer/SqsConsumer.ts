@@ -27,10 +27,10 @@ export class SqsConsumer {
   }
 
   start(): void {
-    if (!this.config.sqs.enabled) {
+    if (this.polling) {
       return;
     }
-    if (this.polling) {
+    if (!this.config.sqs.enabled) {
       return;
     }
     this.polling = true;
