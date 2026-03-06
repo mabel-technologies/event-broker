@@ -1,4 +1,5 @@
 import { OnEvent } from "@tsed/event-emitter";
+import { $log } from "@tsed/logger";
 
 const LOG_PREFIX = "[event-broker]";
 
@@ -14,7 +15,7 @@ export function OnSubscribe(eventName: string) {
         typeof payload === "object" && payload !== null && "eventId" in payload
           ? (payload as { eventId: string }).eventId
           : "unknown";
-      console.info(`${LOG_PREFIX} Listener | event_id=${eventId} listener=${propertyKey}`);
+      $log.info(`${LOG_PREFIX} Listener | event_id=${eventId} listener=${propertyKey}`);
       return originalMethod.apply(this, [payload, ...args]);
     };
     return OnEvent(eventName)(target, propertyKey, descriptor);

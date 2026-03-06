@@ -17,6 +17,7 @@ exports.SqsConsumer = void 0;
 const client_sqs_1 = require("@aws-sdk/client-sqs");
 const di_1 = require("@tsed/di");
 const event_emitter_1 = require("@tsed/event-emitter");
+const logger_1 = require("@tsed/logger");
 const uuid_1 = require("uuid");
 const SnsPublisher_1 = require("../publisher/SnsPublisher");
 let SqsConsumer = class SqsConsumer {
@@ -88,7 +89,7 @@ let SqsConsumer = class SqsConsumer {
             return;
         }
         const eventId = event_id ?? (0, uuid_1.v7)();
-        console.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
+        logger_1.$log.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
         const payloadWithEventId = typeof payload === "object" && payload !== null
             ? { ...payload, eventId }
             : { eventId, data: payload };

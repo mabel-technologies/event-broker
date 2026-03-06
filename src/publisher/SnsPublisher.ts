@@ -1,5 +1,6 @@
 import { SNSClient, PublishCommand, PublishCommandInput } from "@aws-sdk/client-sns";
 import { Inject, Injectable } from "@tsed/di";
+import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
 import { EventBrokerConfig } from "../types/EventBrokerConfig";
 
@@ -34,7 +35,7 @@ export class SnsPublisher {
       payload,
     };
 
-    console.info(`[event-broker] Broadcast | event_id=${eventId} payload=${JSON.stringify(payload)}`);
+    $log.info(`[event-broker] Broadcast | event_id=${eventId} payload=${JSON.stringify(payload)}`);
 
     const input: PublishCommandInput = {
       TopicArn: this.config.sns.topicArn,

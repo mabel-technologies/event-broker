@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { Inject, Injectable } from "@tsed/di";
 import { EventEmitterService } from "@tsed/event-emitter";
+import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
 import { EVENT_BROKER_CONFIG, SnsMessageBody } from "../publisher/SnsPublisher";
 import { EventBrokerConfig } from "../types/EventBrokerConfig";
@@ -95,7 +96,7 @@ export class SqsConsumer {
 
     const eventId = event_id ?? uuid7();
 
-    console.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
+    $log.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
 
     const payloadWithEventId =
       typeof payload === "object" && payload !== null
