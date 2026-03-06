@@ -11,7 +11,7 @@ export interface SnsMessageBody {
   payload: unknown;
 }
 
-/** Payload shape passed to @OnBrokerEvent handlers: original payload with eventId injected. */
+/** Payload shape passed to @OnSubscribe handlers: original payload with eventId injected. */
 export interface BrokerPayloadWithEventId<T = unknown> {
   eventId: string;
   data?: T;

@@ -19,7 +19,7 @@ let EventBrokerService = class EventBrokerService {
     constructor(publisher) {
         this.publisher = publisher;
     }
-    async eventBroadcast(eventType, payload) {
+    async publish(eventType, payload) {
         await this.publisher.publish(eventType, payload);
     }
 };

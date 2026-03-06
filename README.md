@@ -6,7 +6,7 @@ Reusable TypeScript npm package for publishing events to AWS SNS, polling AWS SQ
 
 - **Publish** events to SNS with `event_type` and payload
 - **Poll** SQS (long polling), parse messages, re-emit via `@tsed/event-emitter`
-- **Decorator** `@OnBrokerEvent(eventName)` to subscribe to re-emitted events
+- **Decorator** `@OnSubscribe(eventName)` to subscribe to re-emitted events
 - **Ts.ED** configuration via `eventBroker` in your `@Configuration`
 
 ## Installation
@@ -45,7 +45,7 @@ export class AppConfig {}
 
 ### Publishing events (publisher mode)
 
-Inject `EventBrokerService` and call `broadcast`:
+Inject `EventBrokerService` and call `publish`:
 
 ```ts
 import { Injectable } from "@tsed/di";
@@ -56,22 +56,22 @@ export class MyService {
   constructor(private eventBroker: EventBrokerService) {}
 
   async doSomething() {
-    await this.eventBroker.broadcast("user.created", { userId: "123", name: "Alice" });
+    await this.eventBroker.publish("user.created", { userId: "123", name: "Alice" });
   }
 }
 ```
 
 ### Subscribing to events (consumer mode)
 
-Use the `@OnBrokerEvent` decorator to handle events re-emitted from SQS:
+Use the `@OnSubscribe` decorator to handle events re-emitted from SQS:
 
 ```ts
 import { Injectable } from "@tsed/di";
-import { OnBrokerEvent } from "@aisound/event-broker";
+import { OnSubscribe } from "@aisound/event-broker";
 
 @Injectable()
 export class UserEventHandler {
-  @OnBrokerEvent("user.created")
+  @OnSubscribe("user.created")
   async handleUserCreated(payload: { userId: string; name: string }) {
     console.log("User created:", payload);
   }

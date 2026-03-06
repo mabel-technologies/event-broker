@@ -26,6 +26,7 @@ let SqsConsumer = class SqsConsumer {
         this.polling = false;
         this.pollTimeoutId = null;
         this.client = new client_sqs_1.SQSClient({ region: config.region });
+        this.serviceName = process.env.SERVICE_NAME ?? "unknown";
     }
     start() {
         if (!this.config.sqs.enabled) {
@@ -87,8 +88,7 @@ let SqsConsumer = class SqsConsumer {
             return;
         }
         const eventId = event_id ?? (0, uuid_1.v7)();
-        const serviceName = process.env.SERVICE_NAME ?? "unknown";
-        console.info(`[event-broker] Event captured | event_id=${eventId} service_name=${serviceName}`);
+        console.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
         const payloadWithEventId = typeof payload === "object" && payload !== null
             ? { ...payload, eventId }
             : { eventId, data: payload };

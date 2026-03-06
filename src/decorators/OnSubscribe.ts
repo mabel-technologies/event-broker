@@ -6,7 +6,7 @@ const LOG_PREFIX = "[event-broker]";
  * Wrapper around @tsed/event-emitter's OnEvent.
  * Subscribes to events re-emitted from SQS and logs each listener invocation (event_id, listener name).
  */
-export function OnBrokerEvent(eventName: string) {
+export function OnSubscribe(eventName: string) {
   return function (target: object, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
     descriptor.value = function (payload: unknown, ...args: unknown[]) {
