@@ -1,36 +1,13 @@
-import { DIConfiguration, Inject, Module } from "@tsed/di";
+import { Inject, Module } from "@tsed/di";
 import { EventEmitterModule } from "@tsed/event-emitter";
-import { $log } from "@tsed/logger";
 import { EVENT_BROKER_CONFIG } from "../publisher/SnsPublisher";
 import { SnsPublisher } from "../publisher/SnsPublisher";
 import { SqsConsumer } from "../consumer/SqsConsumer";
 import { EventBrokerService } from "../services/EventBrokerService";
-import { EventBrokerConfig } from "../types/EventBrokerConfig";
 
 @Module({
   imports: [EventEmitterModule],
-  providers: [
-    {
-      provide: EVENT_BROKER_CONFIG,
-      useFactory: (config: DIConfiguration) => {
-        const eventBroker = config.get<EventBrokerConfig>("eventBroker");
-        $log.info("[event-broker] EVENT_BROKER_CONFIG factory received:", {
-          hasEventBroker: eventBroker != null,
-          eventBroker: eventBroker ?? "(undefined)",
-        });
-        if (!eventBroker) {
-          throw new Error(
-            'EventBrokerModule requires "eventBroker" in Ts.ED configuration'
-          );
-        }
-        return eventBroker;
-      },
-      deps: [DIConfiguration],
-    },
-    SnsPublisher,
-    SqsConsumer,
-    EventBrokerService,
-  ],
+  providers: [SnsPublisher, SqsConsumer, EventBrokerService],
 })
 export class EventBrokerModule {
   constructor(@Inject(SqsConsumer) private sqsConsumer: SqsConsumer) {}

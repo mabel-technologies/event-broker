@@ -17,26 +17,34 @@ npm install @aisound/event-broker @tsed/core @tsed/di @tsed/event-emitter @aws-s
 
 ## Configuration
 
+Provide the event-broker config via Ts.ED **providers** (recommended). Some Ts.ED setups do not persist custom config keys like `eventBroker`, so registering the config as a provider is reliable.
+
 In your Ts.ED app configuration:
 
 ```ts
 import { Configuration } from "@tsed/di";
-import { EventBrokerModule } from "@aisound/event-broker";
+import { EventBrokerModule, EVENT_BROKER_CONFIG } from "@aisound/event-broker";
+import type { EventBrokerConfig } from "@aisound/event-broker";
+
+const eventBrokerConfig: EventBrokerConfig = {
+  region: "us-east-1",
+  sns: {
+    topicArn: "arn:aws:sns:us-east-1:123456789012:my-topic",
+  },
+  sqs: {
+    queueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
+    enabled: true,
+    maxMessages: 10,
+    pollingWaitTimeSeconds: 20,
+  },
+};
 
 @Configuration({
   imports: [EventBrokerModule],
-  eventBroker: {
-    region: "us-east-1",
-    sns: {
-      topicArn: "arn:aws:sns:us-east-1:123456789012:my-topic",
-    },
-    sqs: {
-      queueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
-      enabled: true,
-      maxMessages: 10,
-      pollingWaitTimeSeconds: 20,
-    },
-  },
+  providers: [
+    { provide: EVENT_BROKER_CONFIG, useValue: eventBrokerConfig },
+    // ... your other providers
+  ],
 })
 export class AppConfig {}
 ```

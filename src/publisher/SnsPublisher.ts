@@ -24,6 +24,12 @@ export class SnsPublisher {
   private client: SNSClient;
 
   constructor(@Inject(EVENT_BROKER_CONFIG) private config: EventBrokerConfig) {
+    if (config == null) {
+      throw new Error(
+        '[event-broker] EVENT_BROKER_CONFIG was not injected (undefined). ' +
+          'Ensure EventBrokerModule is in your Ts.ED @Configuration({ imports: [EventBrokerModule] }) and that "eventBroker" is set in configuration.'
+      );
+    }
     this.client = new SNSClient({ region: config.region });
   }
 
