@@ -15,9 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventBrokerModule = void 0;
 const di_1 = require("@tsed/di");
 const event_emitter_1 = require("@tsed/event-emitter");
-const logger_1 = require("@tsed/logger");
 const SnsPublisher_1 = require("../publisher/SnsPublisher");
-const SnsPublisher_2 = require("../publisher/SnsPublisher");
 const SqsConsumer_1 = require("../consumer/SqsConsumer");
 const EventBrokerService_1 = require("../services/EventBrokerService");
 let EventBrokerModule = class EventBrokerModule {
@@ -35,26 +33,7 @@ exports.EventBrokerModule = EventBrokerModule;
 exports.EventBrokerModule = EventBrokerModule = __decorate([
     (0, di_1.Module)({
         imports: [event_emitter_1.EventEmitterModule],
-        providers: [
-            {
-                provide: SnsPublisher_1.EVENT_BROKER_CONFIG,
-                useFactory: (config) => {
-                    const eventBroker = config.get("eventBroker");
-                    logger_1.$log.info("[event-broker] EVENT_BROKER_CONFIG factory received:", {
-                        hasEventBroker: eventBroker != null,
-                        eventBroker: eventBroker ?? "(undefined)",
-                    });
-                    if (!eventBroker) {
-                        throw new Error('EventBrokerModule requires "eventBroker" in Ts.ED configuration');
-                    }
-                    return eventBroker;
-                },
-                deps: [di_1.DIConfiguration],
-            },
-            SnsPublisher_2.SnsPublisher,
-            SqsConsumer_1.SqsConsumer,
-            EventBrokerService_1.EventBrokerService,
-        ],
+        providers: [SnsPublisher_1.SnsPublisher, SqsConsumer_1.SqsConsumer, EventBrokerService_1.EventBrokerService],
     }),
     __param(0, (0, di_1.Inject)(SqsConsumer_1.SqsConsumer)),
     __metadata("design:paramtypes", [SqsConsumer_1.SqsConsumer])

@@ -21,6 +21,10 @@ exports.EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
 let SnsPublisher = class SnsPublisher {
     constructor(config) {
         this.config = config;
+        if (config == null) {
+            throw new Error('[event-broker] EVENT_BROKER_CONFIG was not injected (undefined). ' +
+                'Ensure EventBrokerModule is in your Ts.ED @Configuration({ imports: [EventBrokerModule] }) and that "eventBroker" is set in configuration.');
+        }
         this.client = new client_sns_1.SNSClient({ region: config.region });
     }
     async publish(eventType, payload) {
