@@ -17,7 +17,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SqsConsumer = exports.EVENT_BROKER_CONFIG = exports.SnsPublisher = void 0;
 __exportStar(require("./module/EventBrokerModule"), exports);
 __exportStar(require("./services/EventBrokerService"), exports);
-__exportStar(require("./decorators/OnBrokerEvent"), exports);
+__exportStar(require("./decorators/OnSubscribe"), exports);
 __exportStar(require("./types/EventBrokerConfig"), exports);
 var SnsPublisher_1 = require("./publisher/SnsPublisher");
 Object.defineProperty(exports, "SnsPublisher", { enumerable: true, get: function () { return SnsPublisher_1.SnsPublisher; } });

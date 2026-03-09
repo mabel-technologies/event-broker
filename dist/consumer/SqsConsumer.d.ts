@@ -4,6 +4,7 @@ export declare class SqsConsumer {
     private config;
     private eventEmitter;
     private client;
+    private readonly serviceName;
     private polling;
     private pollTimeoutId;
     constructor(config: EventBrokerConfig, eventEmitter: EventEmitterService);

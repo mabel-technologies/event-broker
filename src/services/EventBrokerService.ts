@@ -5,7 +5,7 @@ import { SnsPublisher } from "../publisher/SnsPublisher";
 export class EventBrokerService {
   constructor(@Inject(SnsPublisher) private publisher: SnsPublisher) {}
 
-  async eventBroadcast(eventType: string, payload: unknown): Promise<void> {
+  async publish(eventType: string, payload: unknown): Promise<void> {
     await this.publisher.publish(eventType, payload);
   }
 }

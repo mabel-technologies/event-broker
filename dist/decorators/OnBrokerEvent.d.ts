@@ -1,5 +1,5 @@
 /**
  * Wrapper around @tsed/event-emitter's OnEvent.
- * Use to subscribe to events re-emitted from SQS by the Event Broker.
+ * Subscribes to events re-emitted from SQS and logs each listener invocation (event_id, listener name).
  */
-export declare function OnBrokerEvent(eventName: string): MethodDecorator;
+export declare function OnBrokerEvent(eventName: string): (target: object, propertyKey: string, descriptor: PropertyDescriptor) => void | TypedPropertyDescriptor<any>;
