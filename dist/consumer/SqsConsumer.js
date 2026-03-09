@@ -30,10 +30,10 @@ let SqsConsumer = class SqsConsumer {
         this.serviceName = process.env.SERVICE_NAME ?? "unknown";
     }
     start() {
-        if (!this.config.sqs.enabled) {
+        if (this.polling) {
             return;
         }
-        if (this.polling) {
+        if (!this.config.sqs.enabled) {
             return;
         }
         this.polling = true;
