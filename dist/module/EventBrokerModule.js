@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventBrokerModule = void 0;
 const di_1 = require("@tsed/di");
 const event_emitter_1 = require("@tsed/event-emitter");
+const logger_1 = require("@tsed/logger");
 const SnsPublisher_1 = require("../publisher/SnsPublisher");
 const SnsPublisher_2 = require("../publisher/SnsPublisher");
 const SqsConsumer_1 = require("../consumer/SqsConsumer");
@@ -39,6 +40,10 @@ exports.EventBrokerModule = EventBrokerModule = __decorate([
                 provide: SnsPublisher_1.EVENT_BROKER_CONFIG,
                 useFactory: (config) => {
                     const eventBroker = config.get("eventBroker");
+                    logger_1.$log.info("[event-broker] EVENT_BROKER_CONFIG factory received:", {
+                        hasEventBroker: eventBroker != null,
+                        eventBroker: eventBroker ?? "(undefined)",
+                    });
                     if (!eventBroker) {
                         throw new Error('EventBrokerModule requires "eventBroker" in Ts.ED configuration');
                     }
