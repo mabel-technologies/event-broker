@@ -1,5 +1,6 @@
 import { DIConfiguration, Inject, Module } from "@tsed/di";
 import { EventEmitterModule } from "@tsed/event-emitter";
+import { $log } from "@tsed/logger";
 import { EVENT_BROKER_CONFIG } from "../publisher/SnsPublisher";
 import { SnsPublisher } from "../publisher/SnsPublisher";
 import { SqsConsumer } from "../consumer/SqsConsumer";
@@ -13,6 +14,10 @@ import { EventBrokerConfig } from "../types/EventBrokerConfig";
       provide: EVENT_BROKER_CONFIG,
       useFactory: (config: DIConfiguration) => {
         const eventBroker = config.get<EventBrokerConfig>("eventBroker");
+        $log.info("[event-broker] EVENT_BROKER_CONFIG factory received:", {
+          hasEventBroker: eventBroker != null,
+          eventBroker: eventBroker ?? "(undefined)",
+        });
         if (!eventBroker) {
           throw new Error(
             'EventBrokerModule requires "eventBroker" in Ts.ED configuration'
