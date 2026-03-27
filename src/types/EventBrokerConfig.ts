@@ -1,7 +1,4 @@
-/**
- * Configuration structure for the Event Broker, injectable via Ts.ED @Configuration.
- * Consumers configure under key "eventBroker" in their Ts.ED configuration.
- */
+/** Configure under key "eventBroker" in Ts.ED configuration. */
 export interface EventBrokerSnsConfig {
   topicArn: string;
 }

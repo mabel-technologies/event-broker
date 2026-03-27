@@ -1,6 +1,5 @@
 import { Inject, Module } from "@tsed/di";
 import { EventEmitterModule } from "@tsed/event-emitter";
-import { EVENT_BROKER_CONFIG } from "../publisher/SnsPublisher";
 import { SnsPublisher } from "../publisher/SnsPublisher";
 import { SqsConsumer } from "../consumer/SqsConsumer";
 import { EventBrokerService } from "../services/EventBrokerService";
@@ -11,6 +10,14 @@ import { EventBrokerService } from "../services/EventBrokerService";
 })
 export class EventBrokerModule {
   constructor(@Inject(SqsConsumer) private sqsConsumer: SqsConsumer) {}
+
+  /**
+   * Optional: use when not using Ts.ED Configuration eventBroker key.
+   * With Ts.ED Configuration approach, add eventBroker to @Configuration({ eventBroker: {...} }) and use imports: [EventBrokerModule].
+   */
+  static forRoot(_config: import("../types/EventBrokerConfig").EventBrokerConfig): [typeof EventBrokerModule] {
+    return [EventBrokerModule];
+  }
 
   $onInit(): void {
     this.sqsConsumer.start();
