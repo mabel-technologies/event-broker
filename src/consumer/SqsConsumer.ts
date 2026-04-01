@@ -4,36 +4,56 @@ import {
   DeleteMessageCommand,
   Message,
 } from "@aws-sdk/client-sqs";
-import { Inject, Injectable } from "@tsed/di";
+import { Configuration, Inject, Injectable } from "@tsed/di";
+import type { DIConfiguration } from "@tsed/di";
 import { EventEmitterService } from "@tsed/event-emitter";
 import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
-import { EVENT_BROKER_CONFIG, SnsMessageBody } from "../publisher/SnsPublisher";
+import { SnsMessageBody } from "../publisher/SnsPublisher";
 import { EventBrokerConfig } from "../types/EventBrokerConfig";
 
 @Injectable()
 export class SqsConsumer {
   private client: SQSClient;
+  private readonly config: EventBrokerConfig;
   private readonly serviceName: string;
   private polling = false;
   private pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    @Inject(EVENT_BROKER_CONFIG) private config: EventBrokerConfig,
-    @Inject(EventEmitterService) private eventEmitter: EventEmitterService
+    @Inject(EventEmitterService) private eventEmitter: EventEmitterService,
+    @Configuration() config: DIConfiguration
   ) {
-    this.client = new SQSClient({ region: config.region });
+    const brokerConfig = config.get("eventBroker") as EventBrokerConfig | undefined;
+    if (!brokerConfig?.region || !brokerConfig?.sns || !brokerConfig?.sqs) {
+      throw new Error(
+        '[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).'
+      );
+    }
+    this.config = brokerConfig;
+    this.client = new SQSClient({ region: brokerConfig.region });
     this.serviceName = process.env.SERVICE_NAME ?? "unknown";
   }
 
   start(): void {
     if (this.polling) {
+      $log.info("[event-broker] SQS consumer already polling, skip start");
       return;
     }
     if (!this.config.sqs.enabled) {
+      $log.info("[event-broker] SQS polling disabled (sqs.enabled=false), not starting consumer", {
+        queueUrl: this.config.sqs.queueUrl,
+        serviceName: this.serviceName,
+      });
       return;
     }
     this.polling = true;
+    $log.info("[event-broker] SQS consumer starting", {
+      queueUrl: this.config.sqs.queueUrl,
+      serviceName: this.serviceName,
+      maxMessages: this.config.sqs.maxMessages ?? 10,
+      waitTimeSeconds: this.config.sqs.pollingWaitTimeSeconds ?? 20,
+    });
     this.poll();
   }
 
@@ -43,6 +63,7 @@ export class SqsConsumer {
       clearTimeout(this.pollTimeoutId);
       this.pollTimeoutId = null;
     }
+    $log.info("[event-broker] SQS consumer stopped", { queueUrl: this.config.sqs.queueUrl, serviceName: this.serviceName });
   }
 
   private async poll(): Promise<void> {
@@ -51,6 +72,10 @@ export class SqsConsumer {
     }
 
     try {
+      $log.debug("[event-broker] SQS ReceiveMessage request", {
+        queueUrl: this.config.sqs.queueUrl,
+        serviceName: this.serviceName,
+      });
       const response = await this.client.send(
         new ReceiveMessageCommand({
           QueueUrl: this.config.sqs.queueUrl,
@@ -61,11 +86,26 @@ export class SqsConsumer {
       );
 
       const messages = response.Messages ?? [];
+      if (messages.length > 0) {
+        $log.info("[event-broker] SQS received messages", {
+          count: messages.length,
+          queueUrl: this.config.sqs.queueUrl,
+          serviceName: this.serviceName,
+          messageIds: messages.map((m) => m.MessageId).filter(Boolean),
+        });
+      }
       for (const message of messages) {
         await this.processMessage(message);
       }
-    } catch {
-      // Continue polling on error; next iteration will retry
+    } catch (err) {
+      const error = err as Error;
+      $log.warn("[event-broker] SQS ReceiveMessage failed, will retry on next poll", {
+        queueUrl: this.config.sqs.queueUrl,
+        serviceName: this.serviceName,
+        error: error?.message,
+        name: error?.name,
+      });
+      console.log({error});
     }
 
     if (this.polling) {
@@ -76,27 +116,43 @@ export class SqsConsumer {
   private async processMessage(message: Message): Promise<void> {
     const body = message.Body;
     if (!body) {
+      $log.warn("[event-broker] SQS message has no Body, deleting", {
+        messageId: message.MessageId,
+        queueUrl: this.config.sqs.queueUrl,
+      });
       await this.deleteMessage(message);
       return;
     }
 
     let parsed: SnsMessageBody;
     try {
-      parsed = JSON.parse(body) as SnsMessageBody;
-    } catch {
+      const raw = JSON.parse(body) as Record<string, unknown>;
+      if (typeof raw.Message === "string" && (raw.Type === "Notification" || "TopicArn" in raw)) {
+        parsed = JSON.parse(raw.Message) as unknown as SnsMessageBody;
+      } else {
+        parsed = raw as unknown as SnsMessageBody;
+      }
+    } catch (parseErr) {
+      $log.warn("[event-broker] SQS message Body is not valid JSON, deleting", {
+        messageId: message.MessageId,
+        queueUrl: this.config.sqs.queueUrl,
+        error: (parseErr as Error)?.message,
+      });
       await this.deleteMessage(message);
       return;
     }
 
-    const { event_type, payload, event_id } = parsed;
-    if (!event_type) {
+    const parsedEventType = parsed.eventType ?? parsed.event_type;
+    const { payload, event_id } = parsed;
+    if (!parsedEventType) {
+      $log.warn(`[event-broker] SQS message missing eventType, deleting | messageId=${message.MessageId ?? "n/a"} queueUrl=${this.config.sqs.queueUrl}`);
       await this.deleteMessage(message);
       return;
     }
 
     const eventId = event_id ?? uuid7();
 
-    $log.info(`[event-broker] Event captured | event_id=${eventId} service_name=${this.serviceName}`);
+    $log.info(`[event-broker] Event captured | event_id=${eventId} eventType=${parsedEventType} service_name=${this.serviceName} messageId=${message.MessageId ?? "n/a"}`);
 
     const payloadWithEventId =
       typeof payload === "object" && payload !== null
@@ -104,7 +160,7 @@ export class SqsConsumer {
         : { eventId, data: payload };
 
     try {
-      await this.eventEmitter.emitAsync(event_type, payloadWithEventId);
+      await this.eventEmitter.emitAsync(parsedEventType, payloadWithEventId);
     } finally {
       await this.deleteMessage(message);
     }

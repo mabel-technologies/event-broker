@@ -1,4 +1,3 @@
-"use strict";
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -11,16 +10,22 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.EventBrokerModule = void 0;
-const di_1 = require("@tsed/di");
-const event_emitter_1 = require("@tsed/event-emitter");
-const SnsPublisher_1 = require("../publisher/SnsPublisher");
-const SqsConsumer_1 = require("../consumer/SqsConsumer");
-const EventBrokerService_1 = require("../services/EventBrokerService");
-let EventBrokerModule = class EventBrokerModule {
+var EventBrokerModule_1;
+import { Inject, Module } from "@tsed/di";
+import { EventEmitterModule } from "@tsed/event-emitter";
+import { SnsPublisher } from "../publisher/SnsPublisher";
+import { SqsConsumer } from "../consumer/SqsConsumer";
+import { EventBrokerService } from "../services/EventBrokerService";
+let EventBrokerModule = EventBrokerModule_1 = class EventBrokerModule {
     constructor(sqsConsumer) {
         this.sqsConsumer = sqsConsumer;
+    }
+    /**
+     * Optional: use when not using Ts.ED Configuration eventBroker key.
+     * With Ts.ED Configuration approach, add eventBroker to @Configuration({ eventBroker: {...} }) and use imports: [EventBrokerModule].
+     */
+    static forRoot(_config) {
+        return [EventBrokerModule_1];
     }
     $onInit() {
         this.sqsConsumer.start();
@@ -29,12 +34,12 @@ let EventBrokerModule = class EventBrokerModule {
         this.sqsConsumer.stop();
     }
 };
-exports.EventBrokerModule = EventBrokerModule;
-exports.EventBrokerModule = EventBrokerModule = __decorate([
-    (0, di_1.Module)({
-        imports: [event_emitter_1.EventEmitterModule],
-        providers: [SnsPublisher_1.SnsPublisher, SqsConsumer_1.SqsConsumer, EventBrokerService_1.EventBrokerService],
+EventBrokerModule = EventBrokerModule_1 = __decorate([
+    Module({
+        imports: [EventEmitterModule],
+        providers: [SnsPublisher, SqsConsumer, EventBrokerService],
     }),
-    __param(0, (0, di_1.Inject)(SqsConsumer_1.SqsConsumer)),
-    __metadata("design:paramtypes", [SqsConsumer_1.SqsConsumer])
+    __param(0, Inject(SqsConsumer)),
+    __metadata("design:paramtypes", [SqsConsumer])
 ], EventBrokerModule);
+export { EventBrokerModule };

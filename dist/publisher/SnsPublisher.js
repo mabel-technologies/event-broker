@@ -1,4 +1,3 @@
-"use strict";
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -11,46 +10,63 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.SnsPublisher = exports.EVENT_BROKER_CONFIG = void 0;
-const client_sns_1 = require("@aws-sdk/client-sns");
-const di_1 = require("@tsed/di");
-const logger_1 = require("@tsed/logger");
-const uuid_1 = require("uuid");
-exports.EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+import { Configuration, Injectable } from "@tsed/di";
+import { $log } from "@tsed/logger";
+import { v7 as uuid7 } from "uuid";
+export const EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
+/** @deprecated Use EventBrokerModule.forRoot(config) instead. */
+export const EVENT_BROKER_CONFIG_OPTIONS = Symbol("EVENT_BROKER_CONFIG_OPTIONS");
 let SnsPublisher = class SnsPublisher {
     constructor(config) {
-        this.config = config;
-        if (config == null) {
-            throw new Error('[event-broker] EVENT_BROKER_CONFIG was not injected (undefined). ' +
-                'Ensure EventBrokerModule is in your Ts.ED @Configuration({ imports: [EventBrokerModule] }) and that "eventBroker" is set in configuration.');
+        const brokerConfig = config.get("eventBroker");
+        if (!brokerConfig?.region || !brokerConfig?.sns || !brokerConfig?.sqs) {
+            throw new Error('[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).');
         }
-        this.client = new client_sns_1.SNSClient({ region: config.region });
+        this.config = brokerConfig;
+        this.client = new SNSClient({ region: brokerConfig.region });
     }
     async publish(eventType, payload) {
-        const eventId = (0, uuid_1.v7)();
+        const topicArn = this.config.sns?.topicArn?.trim();
+        if (!topicArn) {
+            throw new Error('[event-broker] sns.topicArn is missing or empty. Set eventBroker.sns.topicArn in your @Configuration.');
+        }
+        const eventId = uuid7();
         const body = {
-            event_type: eventType,
+            eventType,
             event_id: eventId,
             payload,
         };
-        logger_1.$log.info(`[event-broker] Broadcast | event_id=${eventId} payload=${JSON.stringify(payload)}`);
+        $log.info(`[event-broker] Broadcast | topic_arn=${topicArn} event_id=${eventId} eventType=${eventType} payload=${JSON.stringify(payload)}`);
         const input = {
             TopicArn: this.config.sns.topicArn,
             Message: JSON.stringify(body),
             MessageAttributes: {
-                event_type: {
+                eventType: {
                     DataType: "String",
                     StringValue: eventType,
                 },
             },
         };
-        await this.client.send(new client_sns_1.PublishCommand(input));
+        $log.info(`[event-broker] Publish input | ${JSON.stringify({
+            TopicArn: input.TopicArn,
+            MessageAttributes: input.MessageAttributes,
+            messageLength: input.Message?.length ?? 0,
+        })}`);
+        try {
+            const result = await this.client.send(new PublishCommand(input));
+            $log.info(`[event-broker] Publish success | result: ${JSON.stringify(result)}`);
+        }
+        catch (err) {
+            const error = err;
+            $log.warn(`[event-broker] Publish failed | topicArn=${topicArn} eventId=${eventId} eventType=${eventType} error=${error?.message} name=${error?.name}`);
+            throw err;
+        }
     }
 };
-exports.SnsPublisher = SnsPublisher;
-exports.SnsPublisher = SnsPublisher = __decorate([
-    (0, di_1.Injectable)(),
-    __param(0, (0, di_1.Inject)(exports.EVENT_BROKER_CONFIG)),
-    __metadata("design:paramtypes", [Object])
+SnsPublisher = __decorate([
+    Injectable(),
+    __param(0, Configuration()),
+    __metadata("design:paramtypes", [Function])
 ], SnsPublisher);
+export { SnsPublisher };

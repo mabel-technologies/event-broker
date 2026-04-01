@@ -1,4 +1,3 @@
-"use strict";
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -11,10 +10,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.EventBrokerService = void 0;
-const di_1 = require("@tsed/di");
-const SnsPublisher_1 = require("../publisher/SnsPublisher");
+import { Inject, Injectable } from "@tsed/di";
+import { SnsPublisher } from "../publisher/SnsPublisher";
 let EventBrokerService = class EventBrokerService {
     constructor(publisher) {
         this.publisher = publisher;
@@ -23,9 +20,9 @@ let EventBrokerService = class EventBrokerService {
         await this.publisher.publish(eventType, payload);
     }
 };
-exports.EventBrokerService = EventBrokerService;
-exports.EventBrokerService = EventBrokerService = __decorate([
-    (0, di_1.Injectable)(),
-    __param(0, (0, di_1.Inject)(SnsPublisher_1.SnsPublisher)),
-    __metadata("design:paramtypes", [SnsPublisher_1.SnsPublisher])
+EventBrokerService = __decorate([
+    Injectable(),
+    __param(0, Inject(SnsPublisher)),
+    __metadata("design:paramtypes", [SnsPublisher])
 ], EventBrokerService);
+export { EventBrokerService };
