@@ -9,8 +9,8 @@ import type { DIConfiguration } from "@tsed/di";
 import { EventEmitterService } from "@tsed/event-emitter";
 import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
-import { SnsMessageBody } from "../publisher/SnsPublisher";
-import { EventBrokerConfig } from "../types/EventBrokerConfig";
+import { SnsMessageBody } from "../publisher/SnsPublisher.js";
+import { EventBrokerConfig } from "../types/EventBrokerConfig.js";
 
 @Injectable()
 export class SqsConsumer {

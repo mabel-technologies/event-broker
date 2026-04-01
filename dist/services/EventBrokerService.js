@@ -11,7 +11,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 import { Inject, Injectable } from "@tsed/di";
-import { SnsPublisher } from "../publisher/SnsPublisher";
+import { SnsPublisher } from "../publisher/SnsPublisher.js";
 let EventBrokerService = class EventBrokerService {
     constructor(publisher) {
         this.publisher = publisher;

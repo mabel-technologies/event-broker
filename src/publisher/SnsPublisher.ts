@@ -3,7 +3,7 @@ import { Configuration, Injectable } from "@tsed/di";
 import type { DIConfiguration } from "@tsed/di";
 import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
-import { EventBrokerConfig } from "../types/EventBrokerConfig";
+import { EventBrokerConfig } from "../types/EventBrokerConfig.js";
 
 export const EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
 
