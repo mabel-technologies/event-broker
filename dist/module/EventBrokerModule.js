@@ -13,9 +13,9 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 var EventBrokerModule_1;
 import { Inject, Module } from "@tsed/di";
 import { EventEmitterModule } from "@tsed/event-emitter";
-import { SnsPublisher } from "../publisher/SnsPublisher";
-import { SqsConsumer } from "../consumer/SqsConsumer";
-import { EventBrokerService } from "../services/EventBrokerService";
+import { SnsPublisher } from "../publisher/SnsPublisher.js";
+import { SqsConsumer } from "../consumer/SqsConsumer.js";
+import { EventBrokerService } from "../services/EventBrokerService.js";
 let EventBrokerModule = EventBrokerModule_1 = class EventBrokerModule {
     constructor(sqsConsumer) {
         this.sqsConsumer = sqsConsumer;

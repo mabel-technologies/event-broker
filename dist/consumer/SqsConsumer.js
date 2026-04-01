@@ -10,7 +10,6 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a;
 import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, } from "@aws-sdk/client-sqs";
 import { Configuration, Inject, Injectable } from "@tsed/di";
 import { EventEmitterService } from "@tsed/event-emitter";
@@ -161,6 +160,6 @@ SqsConsumer = __decorate([
     Injectable(),
     __param(0, Inject(EventEmitterService)),
     __param(1, Configuration()),
-    __metadata("design:paramtypes", [typeof (_a = typeof EventEmitterService !== "undefined" && EventEmitterService) === "function" ? _a : Object, Function])
+    __metadata("design:paramtypes", [EventEmitterService, Function])
 ], SqsConsumer);
 export { SqsConsumer };

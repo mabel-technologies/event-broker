@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@tsed/di";
-import { SnsPublisher } from "../publisher/SnsPublisher";
+import { SnsPublisher } from "../publisher/SnsPublisher.js";
 
 @Injectable()
 export class EventBrokerService {

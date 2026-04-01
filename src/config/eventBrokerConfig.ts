@@ -1,4 +1,4 @@
-import type { EventBrokerConfig } from "../types/EventBrokerConfig";
+import type { EventBrokerConfig } from "../types/EventBrokerConfig.js";
 
 // const GLOBAL_KEY = "__EVENT_BROKER_CONFIG__";
 
