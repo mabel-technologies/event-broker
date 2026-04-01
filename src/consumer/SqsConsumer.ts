@@ -105,6 +105,7 @@ export class SqsConsumer {
         error: error?.message,
         name: error?.name,
       });
+      console.log({error});
     }
 
     if (this.polling) {
