@@ -87,7 +87,6 @@ let SqsConsumer = class SqsConsumer {
         }
         catch (err) {
             const error = err;
-            //$log.error("[event-broker] SQS ReceiveMessage failed, will retry on next poll",this.config.sqs.queueUrl)
             $log.warn("[event-broker] SQS ReceiveMessage failed, will retry on next poll", {
                 queueUrl: this.config.sqs.queueUrl,
                 serviceName: this.serviceName,
