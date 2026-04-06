@@ -13,7 +13,16 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
 import { Configuration, Injectable } from "@tsed/di";
 import { $log } from "@tsed/logger";
-import { v7 as uuid7 } from "uuid";
+function extractEventIdFromPayload(payload) {
+    if (typeof payload !== "object" || payload === null) {
+        throw new Error("[event-broker] publish: payload must be an object with eventId.");
+    }
+    const { eventId } = payload;
+    if (typeof eventId === "string" && eventId.trim() !== "") {
+        return eventId.trim();
+    }
+    throw new Error("[event-broker] publish: payload.eventId must be a non-empty string.");
+}
 export const EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
 /** @deprecated Use EventBrokerModule.forRoot(config) instead. */
 export const EVENT_BROKER_CONFIG_OPTIONS = Symbol("EVENT_BROKER_CONFIG_OPTIONS");
@@ -31,7 +40,7 @@ let SnsPublisher = class SnsPublisher {
         if (!topicArn) {
             throw new Error('[event-broker] sns.topicArn is missing or empty. Set eventBroker.sns.topicArn in your @Configuration.');
         }
-        const eventId = uuid7();
+        const eventId = extractEventIdFromPayload(payload);
         const body = {
             eventType,
             event_id: eventId,

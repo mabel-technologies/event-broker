@@ -2,8 +2,18 @@ import { SNSClient, PublishCommand, PublishCommandInput } from "@aws-sdk/client-
 import { Configuration, Injectable } from "@tsed/di";
 import type { DIConfiguration } from "@tsed/di";
 import { $log } from "@tsed/logger";
-import { v7 as uuid7 } from "uuid";
 import { EventBrokerConfig } from "../types/EventBrokerConfig.js";
+
+function extractEventIdFromPayload(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("[event-broker] publish: payload must be an object with eventId.");
+  }
+  const { eventId } = payload as { eventId?: unknown };
+  if (typeof eventId === "string" && eventId.trim() !== "") {
+    return eventId.trim();
+  }
+  throw new Error("[event-broker] publish: payload.eventId must be a non-empty string.");
+}
 
 export const EVENT_BROKER_CONFIG = Symbol("EVENT_BROKER_CONFIG");
 
@@ -49,7 +59,7 @@ export class SnsPublisher {
       );
     }
 
-    const eventId = uuid7();
+    const eventId = extractEventIdFromPayload(payload);
     const body: SnsMessageBody = {
       eventType,
       event_id: eventId,
