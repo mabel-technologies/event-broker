@@ -1,7 +1,7 @@
 import { OnEvent } from "@tsed/event-emitter";
 import { $log } from "@tsed/logger";
 const LOG_PREFIX = "[event-broker]";
-/** Subscribes to events from SQS and logs each listener invocation (event_id, listener name). */
+/** Subscribes to events from SQS and logs each listener invocation. */
 export function OnSubscribe(eventName) {
     return function (target, propertyKey, descriptor) {
         const originalMethod = descriptor.value;
@@ -9,7 +9,7 @@ export function OnSubscribe(eventName) {
             const eventId = typeof payload === "object" && payload !== null && "eventId" in payload
                 ? payload.eventId
                 : "unknown";
-            $log.info(`${LOG_PREFIX} Listener | event_id=${eventId} listener=${propertyKey}`);
+            $log.info(`${LOG_PREFIX} Listener | eventName=${eventName} eventId=${eventId} listener=${propertyKey}`);
             return originalMethod.apply(this, [payload, ...args]);
         };
         return OnEvent(eventName)(target, propertyKey, descriptor);

@@ -41,12 +41,7 @@ let SqsConsumer = class SqsConsumer {
             return;
         }
         this.polling = true;
-        $log.info("[event-broker] SQS consumer starting", {
-            queueUrl: this.config.sqs.queueUrl,
-            serviceName: this.serviceName,
-            maxMessages: this.config.sqs.maxMessages ?? 10,
-            waitTimeSeconds: this.config.sqs.pollingWaitTimeSeconds ?? 20,
-        });
+        $log.info("[event-broker] SQS consumer starting");
         this.poll();
     }
     stop() {
@@ -62,10 +57,6 @@ let SqsConsumer = class SqsConsumer {
             return;
         }
         try {
-            $log.debug("[event-broker] SQS ReceiveMessage request", {
-                queueUrl: this.config.sqs.queueUrl,
-                serviceName: this.serviceName,
-            });
             const response = await this.client.send(new ReceiveMessageCommand({
                 QueueUrl: this.config.sqs.queueUrl,
                 MaxNumberOfMessages: this.config.sqs.maxMessages ?? 10,
@@ -73,27 +64,13 @@ let SqsConsumer = class SqsConsumer {
                 MessageAttributeNames: ["All"],
             }));
             const messages = response.Messages ?? [];
-            if (messages.length > 0) {
-                $log.info("[event-broker] SQS received messages", {
-                    count: messages.length,
-                    queueUrl: this.config.sqs.queueUrl,
-                    serviceName: this.serviceName,
-                    messageIds: messages.map((m) => m.MessageId).filter(Boolean),
-                });
-            }
             for (const message of messages) {
                 await this.processMessage(message);
             }
         }
         catch (err) {
             const error = err;
-            $log.warn("[event-broker] SQS ReceiveMessage failed, will retry on next poll", {
-                queueUrl: this.config.sqs.queueUrl,
-                serviceName: this.serviceName,
-                error: error?.message,
-                name: error?.name,
-            });
-            console.log({ error });
+            $log.warn(`[event-broker] SQS receive failed | error=${error?.message}`);
         }
         if (this.polling) {
             this.pollTimeoutId = setTimeout(() => this.poll(), 0);
@@ -136,7 +113,7 @@ let SqsConsumer = class SqsConsumer {
             return;
         }
         const eventId = event_id ?? uuid7();
-        $log.info(`[event-broker] Event captured | event_id=${eventId} eventType=${parsedEventType} service_name=${this.serviceName} messageId=${message.MessageId ?? "n/a"}`);
+        $log.info(`[event-broker] Consume | eventName=${parsedEventType} eventId=${eventId}`);
         const payloadWithEventId = typeof payload === "object" && payload !== null
             ? { ...payload, eventId }
             : { eventId, data: payload };
