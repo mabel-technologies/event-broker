@@ -46,7 +46,7 @@ let SnsPublisher = class SnsPublisher {
             event_id: eventId,
             payload,
         };
-        $log.info(`[event-broker] Broadcast | topic_arn=${topicArn} event_id=${eventId} eventType=${eventType} payload=${JSON.stringify(payload)}`);
+        $log.info(`[event-broker] Publish | eventName=${eventType} eventId=${eventId}`);
         const input = {
             TopicArn: this.config.sns.topicArn,
             Message: JSON.stringify(body),
@@ -57,18 +57,12 @@ let SnsPublisher = class SnsPublisher {
                 },
             },
         };
-        $log.info(`[event-broker] Publish input | ${JSON.stringify({
-            TopicArn: input.TopicArn,
-            MessageAttributes: input.MessageAttributes,
-            messageLength: input.Message?.length ?? 0,
-        })}`);
         try {
-            const result = await this.client.send(new PublishCommand(input));
-            $log.info(`[event-broker] Publish success | result: ${JSON.stringify(result)}`);
+            await this.client.send(new PublishCommand(input));
         }
         catch (err) {
             const error = err;
-            $log.warn(`[event-broker] Publish failed | topicArn=${topicArn} eventId=${eventId} eventType=${eventType} error=${error?.message} name=${error?.name}`);
+            $log.warn(`[event-broker] Publish failed | eventName=${eventType} eventId=${eventId} error=${error?.message}`);
             throw err;
         }
     }
