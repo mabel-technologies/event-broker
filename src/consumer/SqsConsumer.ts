@@ -19,15 +19,18 @@ export class SqsConsumer {
   private readonly serviceName: string;
   private polling = false;
   private pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private consecutivePollFailureLogged: boolean = false;
 
   constructor(
     @Inject(EventEmitterService) private eventEmitter: EventEmitterService,
-    @Configuration() config: DIConfiguration
+    @Configuration() config: DIConfiguration,
   ) {
-    const brokerConfig = config.get("eventBroker") as EventBrokerConfig | undefined;
+    const brokerConfig = config.get("eventBroker") as
+      | EventBrokerConfig
+      | undefined;
     if (!brokerConfig?.region || !brokerConfig?.sns || !brokerConfig?.sqs) {
       throw new Error(
-        '[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).'
+        "[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).",
       );
     }
     this.config = brokerConfig;
@@ -41,10 +44,13 @@ export class SqsConsumer {
       return;
     }
     if (!this.config.sqs.enabled) {
-      $log.info("[event-broker] SQS polling disabled (sqs.enabled=false), not starting consumer", {
-        queueUrl: this.config.sqs.queueUrl,
-        serviceName: this.serviceName,
-      });
+      $log.info(
+        "[event-broker] SQS polling disabled (sqs.enabled=false), not starting consumer",
+        {
+          queueUrl: this.config.sqs.queueUrl,
+          serviceName: this.serviceName,
+        },
+      );
       return;
     }
     this.polling = true;
@@ -58,7 +64,10 @@ export class SqsConsumer {
       clearTimeout(this.pollTimeoutId);
       this.pollTimeoutId = null;
     }
-    $log.info("[event-broker] SQS consumer stopped", { queueUrl: this.config.sqs.queueUrl, serviceName: this.serviceName });
+    $log.info("[event-broker] SQS consumer stopped", {
+      queueUrl: this.config.sqs.queueUrl,
+      serviceName: this.serviceName,
+    });
   }
 
   private async poll(): Promise<void> {
@@ -73,16 +82,27 @@ export class SqsConsumer {
           MaxNumberOfMessages: this.config.sqs.maxMessages ?? 10,
           WaitTimeSeconds: this.config.sqs.pollingWaitTimeSeconds ?? 20,
           MessageAttributeNames: ["All"],
-        })
+        }),
       );
+
+      // Successful receive — next failure should log again
+      this.consecutivePollFailureLogged = false;
 
       const messages = response.Messages ?? [];
       for (const message of messages) {
         await this.processMessage(message);
       }
     } catch (err) {
-      const error = err as Error;
-      $log.warn(`[event-broker] SQS receive failed | error=${error?.message}`);
+      const error = err as Error & { name?: string; code?: string };
+      const msg = error?.message ?? String(err);
+      if (!this.consecutivePollFailureLogged) {
+        this.consecutivePollFailureLogged = true;
+        const name = error?.name ?? "";
+        const code = error?.code ?? "";
+        $log.warn(
+          `[event-broker] SQS receive failed | name=${name} code=${code} error=${msg} | further errors suppressed until a successful poll`,
+        );
+      }
     }
 
     if (this.polling) {
@@ -104,7 +124,10 @@ export class SqsConsumer {
     let parsed: SnsMessageBody;
     try {
       const raw = JSON.parse(body) as Record<string, unknown>;
-      if (typeof raw.Message === "string" && (raw.Type === "Notification" || "TopicArn" in raw)) {
+      if (
+        typeof raw.Message === "string" &&
+        (raw.Type === "Notification" || "TopicArn" in raw)
+      ) {
         parsed = JSON.parse(raw.Message) as unknown as SnsMessageBody;
       } else {
         parsed = raw as unknown as SnsMessageBody;
@@ -122,14 +145,18 @@ export class SqsConsumer {
     const parsedEventType = parsed.eventType ?? parsed.event_type;
     const { payload, event_id } = parsed;
     if (!parsedEventType) {
-      $log.warn(`[event-broker] SQS message missing eventType, deleting | messageId=${message.MessageId ?? "n/a"} queueUrl=${this.config.sqs.queueUrl}`);
+      $log.warn(
+        `[event-broker] SQS message missing eventType, deleting | messageId=${message.MessageId ?? "n/a"} queueUrl=${this.config.sqs.queueUrl}`,
+      );
       await this.deleteMessage(message);
       return;
     }
 
     const eventId = event_id ?? uuid7();
 
-    $log.info(`[event-broker] Consume | eventName=${parsedEventType} eventId=${eventId}`);
+    $log.info(
+      `[event-broker] Consume | eventName=${parsedEventType} eventId=${eventId}`,
+    );
 
     const payloadWithEventId =
       typeof payload === "object" && payload !== null
@@ -149,7 +176,7 @@ export class SqsConsumer {
       new DeleteMessageCommand({
         QueueUrl: this.config.sqs.queueUrl,
         ReceiptHandle: message.ReceiptHandle,
-      })
+      }),
     );
   }
 }
