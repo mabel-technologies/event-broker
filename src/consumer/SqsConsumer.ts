@@ -19,7 +19,7 @@ export class SqsConsumer {
   private readonly serviceName: string;
   private polling = false;
   private pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private queueDoesNotExistWarned: boolean = false;
+  private consecutivePollFailureLogged: boolean = false;
 
   constructor(
     @Inject(EventEmitterService) private eventEmitter: EventEmitterService,
@@ -85,25 +85,23 @@ export class SqsConsumer {
         }),
       );
 
+      // Successful receive — next failure should log again
+      this.consecutivePollFailureLogged = false;
+
       const messages = response.Messages ?? [];
       for (const message of messages) {
         await this.processMessage(message);
       }
     } catch (err) {
-      const error = err as Error & { name?: string };
+      const error = err as Error & { name?: string; code?: string };
       const msg = error?.message ?? String(err);
-      const isQueueDoesNotExist =
-        error?.name === "QueueDoesNotExist" ||
-        msg.includes("The specified queue does not exist");
-      if (isQueueDoesNotExist) {
-        if (!this.queueDoesNotExistWarned) {
-          this.queueDoesNotExistWarned = true;
-          $log.warn(
-            `[event-broker] SQS receive failed | error=${msg} | further QueueDoesNotExist warnings suppressed until restart`,
-          );
-        }
-      } else {
-        $log.warn(`[event-broker] SQS receive failed | error=${msg}`);
+      if (!this.consecutivePollFailureLogged) {
+        this.consecutivePollFailureLogged = true;
+        const name = error?.name ?? "";
+        const code = error?.code ?? "";
+        $log.warn(
+          `[event-broker] SQS receive failed | name=${name} code=${code} error=${msg} | further errors suppressed until a successful poll`,
+        );
       }
     }
 
