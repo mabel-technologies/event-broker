@@ -1,14 +1,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 import { $log } from "@tsed/logger";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, "..");
+const PROJECT_ROOT = resolve(process.env.EVENT_REGISTRY_ROOT ?? process.cwd());
 
 const SERVICE_NAME_MAP: Record<string, string> = {
-  "auclair-be-framework": "auth"
+  "auclair-be-framework": "auth",
 };
 
 type LocalRegistry = {
@@ -30,21 +28,24 @@ function getDevopsServiceName(localService: string): string {
   return SERVICE_NAME_MAP[localService] ?? localService;
 }
 
-function main() {
+function main(): void {
   const args = process.argv.slice(2).filter((a) => a !== "--");
   const registryPathArg = args[0];
   if (!registryPathArg) {
-    $log.error("Usage: pnpm run events:registry:sync -- <path-to-devops-registry.json>");
+    $log.error(
+      "Usage: pnpm run events:registry:sync -- <path-to-devops-registry.json>",
+    );
     process.exit(1);
   }
 
-  const devopsPath = resolve(process.cwd(), registryPathArg);
-  const localPath = join(ROOT, "event_registry.json");
+  const devopsPath = resolve(PROJECT_ROOT, registryPathArg);
+  const localPath = join(PROJECT_ROOT, "event_registry.json");
 
   const local: LocalRegistry = JSON.parse(readFileSync(localPath, "utf-8"));
   const devops: DevopsRegistry = JSON.parse(readFileSync(devopsPath, "utf-8"));
 
   if (!devops.events) devops.events = {};
+
   const me = getDevopsServiceName(local.service);
   const ourProducers = new Set(local.producers);
   const ourConsumers = new Set(local.consumers);

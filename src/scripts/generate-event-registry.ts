@@ -1,18 +1,19 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { $log } from "@tsed/logger";
 import ts from "typescript";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, "..");
-const CONFIG_PATH = join(ROOT, "tsconfig.node.json");
+const PROJECT_ROOT = resolve(
+  process.env.EVENT_BROKER_REGISTRY_ROOT ?? process.cwd(),
+);
+
 const EVENT_NAME_RE = /^[.a-z0-9-]+$/;
 
 function getServiceName(): string {
-  const pkgPath = join(ROOT, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+  const pkgPath = join(PROJECT_ROOT, "package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: string };
   return pkg.name ?? "unknown";
 }
 
@@ -58,9 +59,7 @@ function resolveStaticString(
     return finish(inner.text);
   }
 
-  const constVal = checker.getConstantValue(
-    inner as ts.PropertyAccessExpression,
-  );
+  const constVal = checker.getConstantValue(inner as ts.Expression);
   if (typeof constVal === "string") {
     return finish(constVal);
   }
@@ -74,6 +73,7 @@ function resolveStaticString(
     if (!rawSym) {
       return finish(null);
     }
+
     const symbol = skipAlias(checker, rawSym);
     const decl = symbol.valueDeclaration ?? symbol.declarations?.[0];
     if (!decl) {
@@ -184,39 +184,77 @@ function collectPublishEvents(
   visit(sourceFile);
 }
 
-function createProgramFromConfig(): ts.Program {
-  const readJson = ts.readConfigFile(CONFIG_PATH, ts.sys.readFile);
-  if (readJson.error) {
-    throw new Error(ts.formatDiagnostic(readJson.error, formatHost()));
+function collectSourceFiles(rootDir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (
+          ent.name === "node_modules" ||
+          ent.name === "dist" ||
+          ent.name === "build" ||
+          ent.name.startsWith(".")
+        ) {
+          continue;
+        }
+        walk(full);
+      } else if (/\.[cm]?tsx?$/.test(ent.name)) {
+        out.push(full);
+      }
+    }
+  };
+  walk(rootDir);
+  return out;
+}
+
+function createProgramFromProjectRoot(): ts.Program {
+  const srcRoot = join(PROJECT_ROOT, "src");
+  let rootNames: string[];
+  try {
+    const st = readdirSync(srcRoot, { withFileTypes: true });
+    if (st.length >= 0) {
+      rootNames = collectSourceFiles(srcRoot);
+    } else {
+      rootNames = [];
+    }
+  } catch {
+    rootNames = [];
   }
-  const parsed = ts.parseJsonConfigFileContent(
-    readJson.config,
-    ts.sys,
-    dirname(CONFIG_PATH),
-    undefined,
-    CONFIG_PATH,
-  );
-  if (parsed.errors.length) {
+  if (rootNames.length === 0) {
+    rootNames = collectSourceFiles(PROJECT_ROOT);
+  }
+  if (rootNames.length === 0) {
     throw new Error(
-      parsed.errors.map((d) => ts.formatDiagnostic(d, formatHost())).join("\n"),
+      `No .ts/.tsx files found under ${PROJECT_ROOT}. Set EVENT_BROKER_REGISTRY_ROOT or add sources (e.g. src/).`,
     );
   }
-  return ts.createProgram({
-    rootNames: parsed.fileNames,
-    options: parsed.options,
-  });
+
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    experimentalDecorators: true,
+    emitDecoratorMetadata: true,
+    noEmit: true,
+    skipLibCheck: true,
+    allowSyntheticDefaultImports: true,
+    esModuleInterop: true,
+  };
+
+  return ts.createProgram({ rootNames, options });
 }
 
 function formatHost(): ts.FormatDiagnosticsHost {
   return {
     getCanonicalFileName: (f) => f,
-    getCurrentDirectory: () => ROOT,
+    getCurrentDirectory: () => PROJECT_ROOT,
     getNewLine: () => "\n",
   };
 }
 
 function main(): void {
-  const program = createProgramFromConfig();
+  const program = createProgramFromProjectRoot();
   const checker = program.getTypeChecker();
   const consumers = new Set<string>();
   const producers = new Set<string>();
@@ -236,9 +274,8 @@ function main(): void {
     consumers: [...consumers].sort(),
   };
 
-  const outPath = join(ROOT, "event_registry.approach-1.json");
+  const outPath = join(PROJECT_ROOT, "event_registry.json");
   writeFileSync(outPath, JSON.stringify(registry, null, 2) + "\n", "utf-8");
-  $log.info(`[approach-1] Wrote ${outPath}`);
   $log.info({ producers: registry.producers, consumers: registry.consumers });
 }
 
