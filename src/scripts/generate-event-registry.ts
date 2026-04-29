@@ -58,6 +58,7 @@ function resolveStaticString(
     return finish(inner.text);
   }
 
+  // Fix: checker.getConstantValue overloads accept EnumMember vs prop/element access — assert after kind checks
   let constVal: string | number | undefined = undefined;
   if (
     ts.isEnumMember(inner) ||
@@ -278,9 +279,8 @@ function main(): void {
     consumers: [...consumers].sort(),
   };
 
-  const outPath = join(PROJECT_ROOT, "event_registry.approach-1.json");
+  const outPath = join(PROJECT_ROOT, "event_registry.json");
   writeFileSync(outPath, JSON.stringify(registry, null, 2) + "\n", "utf-8");
-  $log.info(`[approach-1] Wrote ${relative(PROJECT_ROOT, outPath) || outPath}`);
   $log.info({ producers: registry.producers, consumers: registry.consumers });
 }
 
