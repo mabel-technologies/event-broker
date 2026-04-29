@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative, resolve } from "node:path";
 
 import { $log } from "@tsed/logger";
 import ts from "typescript";
@@ -59,7 +58,21 @@ function resolveStaticString(
     return finish(inner.text);
   }
 
-  const constVal = checker.getConstantValue(inner as ts.Expression);
+  // Fix: checker.getConstantValue overloads accept EnumMember vs prop/element access — assert after kind checks
+  let constVal: string | number | undefined = undefined;
+  if (
+    ts.isEnumMember(inner) ||
+    ts.isPropertyAccessExpression(inner) ||
+    ts.isElementAccessExpression(inner)
+  ) {
+    constVal = checker.getConstantValue(
+      inner as
+        | ts.EnumMember
+        | ts.PropertyAccessExpression
+        | ts.ElementAccessExpression,
+    );
+  }
+
   if (typeof constVal === "string") {
     return finish(constVal);
   }
@@ -243,14 +256,6 @@ function createProgramFromProjectRoot(): ts.Program {
   };
 
   return ts.createProgram({ rootNames, options });
-}
-
-function formatHost(): ts.FormatDiagnosticsHost {
-  return {
-    getCanonicalFileName: (f) => f,
-    getCurrentDirectory: () => PROJECT_ROOT,
-    getNewLine: () => "\n",
-  };
 }
 
 function main(): void {
