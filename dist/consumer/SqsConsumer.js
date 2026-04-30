@@ -20,9 +20,10 @@ let SqsConsumer = class SqsConsumer {
         this.eventEmitter = eventEmitter;
         this.polling = false;
         this.pollTimeoutId = null;
+        this.consecutivePollFailureLogged = false;
         const brokerConfig = config.get("eventBroker");
         if (!brokerConfig?.region || !brokerConfig?.sns || !brokerConfig?.sqs) {
-            throw new Error('[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).');
+            throw new Error("[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).");
         }
         this.config = brokerConfig;
         this.client = new SQSClient({ region: brokerConfig.region });
@@ -50,7 +51,10 @@ let SqsConsumer = class SqsConsumer {
             clearTimeout(this.pollTimeoutId);
             this.pollTimeoutId = null;
         }
-        $log.info("[event-broker] SQS consumer stopped", { queueUrl: this.config.sqs.queueUrl, serviceName: this.serviceName });
+        $log.info("[event-broker] SQS consumer stopped", {
+            queueUrl: this.config.sqs.queueUrl,
+            serviceName: this.serviceName,
+        });
     }
     async poll() {
         if (!this.polling || !this.config.sqs.enabled) {
@@ -63,6 +67,8 @@ let SqsConsumer = class SqsConsumer {
                 WaitTimeSeconds: this.config.sqs.pollingWaitTimeSeconds ?? 20,
                 MessageAttributeNames: ["All"],
             }));
+            // Successful receive — next failure should log again
+            this.consecutivePollFailureLogged = false;
             const messages = response.Messages ?? [];
             for (const message of messages) {
                 await this.processMessage(message);
@@ -70,7 +76,13 @@ let SqsConsumer = class SqsConsumer {
         }
         catch (err) {
             const error = err;
-            $log.warn(`[event-broker] SQS receive failed | error=${error?.message}`);
+            const msg = error?.message ?? String(err);
+            if (!this.consecutivePollFailureLogged) {
+                this.consecutivePollFailureLogged = true;
+                const name = error?.name ?? "";
+                const code = error?.code ?? "";
+                $log.warn(`[event-broker] SQS receive failed | name=${name} code=${code} error=${msg} | further errors suppressed until a successful poll`);
+            }
         }
         if (this.polling) {
             this.pollTimeoutId = setTimeout(() => this.poll(), 0);
@@ -89,7 +101,8 @@ let SqsConsumer = class SqsConsumer {
         let parsed;
         try {
             const raw = JSON.parse(body);
-            if (typeof raw.Message === "string" && (raw.Type === "Notification" || "TopicArn" in raw)) {
+            if (typeof raw.Message === "string" &&
+                (raw.Type === "Notification" || "TopicArn" in raw)) {
                 parsed = JSON.parse(raw.Message);
             }
             else {

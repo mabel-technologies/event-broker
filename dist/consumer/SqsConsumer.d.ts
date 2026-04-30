@@ -7,6 +7,7 @@ export declare class SqsConsumer {
     private readonly serviceName;
     private polling;
     private pollTimeoutId;
+    private consecutivePollFailureLogged;
     constructor(eventEmitter: EventEmitterService, config: DIConfiguration);
     start(): void;
     stop(): void;
