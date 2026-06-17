@@ -1,6 +1,6 @@
 {
   "name": "@mabel-technologies/event-broker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Reusable event broker: SNS publish, SQS poll, re-emit via @tsed/event-emitter",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
