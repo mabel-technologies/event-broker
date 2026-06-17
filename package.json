@@ -1,5 +1,5 @@
 {
-  "name": "@aisound/event-broker",
+  "name": "@mabel-technologies/event-broker",
   "version": "1.0.0",
   "description": "Reusable event broker: SNS publish, SQS poll, re-emit via @tsed/event-emitter",
   "type": "module",
