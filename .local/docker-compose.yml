@@ -27,6 +27,9 @@ services:
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
       FLOCI_DEFAULT_REGION: us-east-1
+      # Lower LOCAL_MAX_RECEIVE_COUNT (e.g. 2) to reach the DLQ faster when testing retries.
+      LOCAL_MAX_RECEIVE_COUNT: ${LOCAL_MAX_RECEIVE_COUNT:-5}
+      LOCAL_VISIBILITY_TIMEOUT: ${LOCAL_VISIBILITY_TIMEOUT:-30}
     entrypoint: ["bash", "/provision/provision.sh"]
     volumes:
       - ./provision:/provision

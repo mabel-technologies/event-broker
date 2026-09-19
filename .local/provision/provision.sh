@@ -6,7 +6,8 @@ set -euo pipefail
 # knowledgebase/aws/event-architecture.md and the root knowledgebase/event-architecture.md:
 #
 #   1. Platform events: one SNS topic fanning out to one SQS queue per consumer service
-#      (+ the data2/music2 own-topic variants, bug-compatible naming included).
+#      (+ the data2/music2 own-topic variants, bug-compatible naming included). Each consumer queue
+#      has a "<name>_dlq" dead-letter queue attached through a redrive policy.
 #   2. Upload/moderation fan-out: an S3 bucket with EventBridge notifications, routed by three
 #      rules (image/mp3/mp4) straight to SQS — no SNS involved, matching AWS.
 #
@@ -39,13 +40,31 @@ queue_arn() {
     --query 'Attributes.QueueArn' --output text
 }
 
+# Every event-broker consumer queue gets a DLQ and a redrive policy, so ack-on-success, retry backoff
+# and dead-lettering can be exercised locally. Attributes are applied with set-queue-attributes
+# rather than at create time so re-running with different LOCAL_* values stays idempotent.
+MAX_RECEIVE_COUNT="${LOCAL_MAX_RECEIVE_COUNT:-5}"
+VISIBILITY_TIMEOUT="${LOCAL_VISIBILITY_TIMEOUT:-30}"   # matches the live stage queues
+DLQ_RETENTION_SECONDS=1209600                          # 14 days; must exceed the source queue's
+
+create_queue_with_dlq() {
+  local dlq_url dlq_arn url
+  dlq_url=$(create_queue "${1}_dlq")
+  aws $ENDPOINT --region "$REGION" sqs set-queue-attributes --queue-url "$dlq_url" \
+    --attributes "MessageRetentionPeriod=$DLQ_RETENTION_SECONDS"
+  dlq_arn=$(queue_arn "$dlq_url")
+  url=$(create_queue "$1")
+  aws $ENDPOINT --region "$REGION" sqs set-queue-attributes --queue-url "$url" --attributes \
+    "{\"VisibilityTimeout\":\"$VISIBILITY_TIMEOUT\",\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$dlq_arn\\\",\\\"maxReceiveCount\\\":\\\"$MAX_RECEIVE_COUNT\\\"}\"}"
+  echo "$url"
+}
+
 subscribe() {
-  # RawMessageDelivery=true matches social-fe-devops/script/sync_sns.py's create_subscription(),
-  # which is what actually provisions new platform-events subscriptions on real AWS. SqsConsumer.ts
-  # already handles both raw and SNS-wrapped bodies, so this only matters for parity, not function.
+  # Raw message delivery is left at the SNS default (off): the live stage subscription has it
+  # Disabled, so consumers receive the SNS-wrapped Notification envelope. SqsConsumer handles both
+  # shapes, but tests should run against what stage actually sends.
   aws $ENDPOINT --region "$REGION" sns subscribe \
     --topic-arn "$1" --protocol sqs --notification-endpoint "$2" \
-    --attributes RawMessageDelivery=true \
     --query 'SubscriptionArn' --output text >/dev/null
 }
 
@@ -57,7 +76,7 @@ TOPIC_PLATFORM=$(create_topic "aisound-local-platform-events")
 TOPIC_DATA2=$(create_topic "aisound-local-data2-events")
 TOPIC_MUSIC2=$(create_topic "aisound-local-music2-events")
 
-log "Creating platform-events SQS queues + subscriptions (raw delivery on, matching sync_sns.py)..."
+log "Creating platform-events SQS queues (each with a DLQ, maxReceiveCount=$MAX_RECEIVE_COUNT) + subscriptions..."
 declare -A PLATFORM_QUEUES=(
   [AUTH]="aisound-local-platform-events_auth_queue"
   [DATA]="aisound-local-platform-events_data_queue"
@@ -71,29 +90,24 @@ declare -A PLATFORM_QUEUES=(
 
 for key in "${!PLATFORM_QUEUES[@]}"; do
   qname="${PLATFORM_QUEUES[$key]}"
-  qurl=$(create_queue "$qname")
+  qurl=$(create_queue_with_dlq "$qname")
   qarn=$(queue_arn "$qurl")
   subscribe "$TOPIC_PLATFORM" "$qarn"
   echo "EVENT_BROKER_SQS_QUEUE_${key}_URL=$qurl" >>"$OUT_FILE"
 done
-
-# Documented on the real subscription queue only; kept empty (no redrive policy) for parity.
-create_queue "aisound-local-platform-events_subscription_queue_dlq" >/dev/null
 
 log "Creating data2/music2 own-topic queues..."
 # auclair-be-data2 reads the plain EVENT_BROKER_SQS_QUEUE_URL var and, on real AWS, that var points
 # at a queue literally named "..._data_queue" instead of "..._data2_queue" (a known naming bug in
 # ai-sound-service-configs, documented in knowledgebase/event-architecture.md section 4).
 # Reproduced here on purpose so local behavior matches deployed behavior.
-DATA2_QUEUE_URL=$(create_queue "aisound-local-data2-events_data_queue")
+DATA2_QUEUE_URL=$(create_queue_with_dlq "aisound-local-data2-events_data_queue")
 DATA2_QUEUE_ARN=$(queue_arn "$DATA2_QUEUE_URL")
 subscribe "$TOPIC_DATA2" "$DATA2_QUEUE_ARN"
-create_queue "aisound-local-data2-events_data_queue_dlq" >/dev/null
 
-MUSIC2_QUEUE_URL=$(create_queue "aisound-local-music2-events_music_queue")
+MUSIC2_QUEUE_URL=$(create_queue_with_dlq "aisound-local-music2-events_music_queue")
 MUSIC2_QUEUE_ARN=$(queue_arn "$MUSIC2_QUEUE_URL")
 subscribe "$TOPIC_MUSIC2" "$MUSIC2_QUEUE_ARN"
-create_queue "aisound-local-music2-events_music_queue_dlq" >/dev/null
 
 {
   echo ""

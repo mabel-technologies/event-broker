@@ -180,17 +180,48 @@ repo is on 3.700) — no `endpoint` override needs to be added to `SnsPublisher`
 |---|---|---|
 | Platform events SNS topic | `aisound-stage-platform-events` | `aisound-local-platform-events` |
 | Per-consumer SQS queues | `..._<auth\|data\|music\|networkgraph\|social\|...>_queue` | same suffixes, `aisound-local-platform-events_*` |
+| Dead-letter queues | none on the main consumer queues today | `<queue>_dlq` + redrive policy on every consumer queue (the target state) |
 | `data2` own topic + queue | `aisound-stage-data2-events` → `..._data_queue` (naming bug, kept) | `aisound-local-data2-events` → `..._data_queue` |
 | `music2` own topic + queue | `aisound-stage-music2-events` → `..._music_queue` | `aisound-local-music2-events` → `..._music_queue` |
 | Upload bucket | `aisound-auclair-be-local` | `aisound-local-uploads` |
 | Upload fan-out rules | `uploads-fanout-rule-{image,mp3,mp4}` (EventBridge, no SNS) | `uploads-fanout-rule-{image,mp3,mp4}-local` |
 | Tagging/moderation queues | `stage-aisound-tags-queue`, `content_moderation_fast_queue`, `stage-ai-sound-am-sqs` | `aisound_tags_queue_local`, `content_moderation_fast_queue_local`, `ai_sound_am_sqs_local` |
 
-`local:up` subscribes each queue with `RawMessageDelivery=true`, matching how
-`social-fe-devops/script/sync_sns.py` creates real subscriptions (the message body is the plain
-`{eventType, event_id, payload}` envelope, not wrapped in an SNS `Notification`). No filter policy
-is set at this point — every queue receives every message until you run `local:filters` (next
-section).
+Subscriptions use the SNS default of **raw message delivery off**, because that is what the live
+stage subscription has: consumers receive the SNS-wrapped `Notification` envelope, which
+`SqsConsumer` unwraps. No filter policy is set at this point — every queue receives every message
+until you run `local:filters` (next section).
+
+### Dead-letter queues and retries
+
+Every event-broker consumer queue is created with a `<queue>_dlq` dead-letter queue and a redrive
+policy (`maxReceiveCount=5`, 30-second visibility timeout, 14-day DLQ retention), so ack-on-success,
+retry backoff and dead-lettering can all be exercised locally. Floci moves a message to the DLQ
+natively once it has been received `maxReceiveCount` times without being deleted, and supports
+`ChangeMessageVisibility`, `ApproximateReceiveCount` and DLQ redrive.
+
+```bash
+# reach the DLQ faster while testing retries (safe to re-run against a running stack)
+LOCAL_MAX_RECEIVE_COUNT=2 npm run local:up
+
+# helper: AWS CLI against Floci, no local install needed
+awsl() { docker run --rm --network local_default \
+  -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_DEFAULT_REGION=us-east-1 \
+  amazon/aws-cli:2.17.62 --endpoint-url=http://floci:4566 "$@"; }
+Q=http://floci:4566/000000000000/aisound-local-platform-events_social_queue
+
+# peek at a DLQ without consuming (visibility 0 leaves the message in place)
+awsl sqs receive-message --queue-url ${Q}_dlq --visibility-timeout 0 \
+  --message-system-attribute-names ApproximateReceiveCount
+
+# send everything in a DLQ back to its source queue
+awsl sqs start-message-move-task \
+  --source-arn arn:aws:sqs:us-east-1:000000000000:aisound-local-platform-events_social_queue_dlq
+```
+
+Floci does **not** enforce IAM. A new AWS call (for example `sqs:ChangeMessageVisibility`) will work
+locally and fail in a deployed environment unless the service's role is granted it — tell DevOps
+about any new API action the library starts using.
 
 ### Filter policies
 
