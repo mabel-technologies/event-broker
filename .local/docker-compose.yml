@@ -1,0 +1,82 @@
+# Local mirror of the AWS event architecture (see ../README.md "Local development with Floci").
+# `floci` emulates SNS/SQS/S3/EventBridge on :4566; `provision` is a one-shot AWS CLI container
+# that creates the same topics/queues/rules documented in knowledgebase/aws/event-architecture.md.
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: event-broker-floci
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_STORAGE_MODE: memory
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/4566'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  provision:
+    image: amazon/aws-cli:2.17.62
+    container_name: event-broker-floci-provision
+    depends_on:
+      floci:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      FLOCI_DEFAULT_REGION: us-east-1
+      # Lower LOCAL_MAX_RECEIVE_COUNT (e.g. 2) to reach the DLQ faster when testing retries.
+      LOCAL_MAX_RECEIVE_COUNT: ${LOCAL_MAX_RECEIVE_COUNT:-5}
+      LOCAL_VISIBILITY_TIMEOUT: ${LOCAL_VISIBILITY_TIMEOUT:-30}
+    entrypoint: ["bash", "/provision/provision.sh"]
+    volumes:
+      - ./provision:/provision
+    restart: "no"
+
+  # Optional: the official web console (see ui.sh / README "Floci UI"). Not started by plain
+  # `docker compose up` -- only via `--profile ui` (ui.sh clones floci-ui into ./floci-ui first,
+  # since floci-ui only ships a prebuilt frontend image, no prebuilt API image -- both are built
+  # from source here, mirroring floci-ui's own dev docker-compose.yml exactly, dev Dockerfiles and
+  # bind mounts included, since those Dockerfiles COPY only package.json and expect source mounted
+  # in at runtime).
+  floci-api:
+    profiles: ["ui"]
+    build:
+      context: ./floci-ui/packages/api
+      dockerfile: Dockerfile.dev
+    container_name: event-broker-floci-api
+    volumes:
+      - ./floci-ui/packages/api/src:/app/src
+    environment:
+      FLOCI_ENDPOINT: http://floci:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      PORT: "4501"
+    depends_on:
+      floci:
+        condition: service_healthy
+    ports:
+      - "4501:4501"
+
+  floci-ui:
+    profiles: ["ui"]
+    build:
+      context: ./floci-ui/packages/frontend
+      dockerfile: Dockerfile.dev
+    container_name: event-broker-floci-ui
+    volumes:
+      - ./floci-ui/packages/frontend/src:/app/src
+      - ./floci-ui/packages/frontend/index.html:/app/index.html
+      - ./floci-ui/packages/frontend/vite.config.ts:/app/vite.config.ts
+      - ./floci-ui/packages/frontend/tsconfig.json:/app/tsconfig.json
+      - ./floci-ui/packages/frontend/tsconfig.node.json:/app/tsconfig.node.json
+    environment:
+      API_TARGET: http://floci-api:4501
+      VITE_USE_POLLING: "true"
+    depends_on:
+      - floci-api
+    ports:
+      - "4500:4500"
