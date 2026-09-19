@@ -1,0 +1,34 @@
+# Local mirror of the AWS event architecture (see ../README.md "Local development with Floci").
+# `floci` emulates SNS/SQS/S3/EventBridge on :4566; `provision` is a one-shot AWS CLI container
+# that creates the same topics/queues/rules documented in knowledgebase/aws/event-architecture.md.
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: event-broker-floci
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_STORAGE_MODE: memory
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/4566'"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  provision:
+    image: amazon/aws-cli:2.17.62
+    container_name: event-broker-floci-provision
+    depends_on:
+      floci:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      FLOCI_DEFAULT_REGION: us-east-1
+    entrypoint: ["bash", "/provision/provision.sh"]
+    volumes:
+      - ./provision:/provision
+    restart: "no"
+

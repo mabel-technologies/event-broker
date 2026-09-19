@@ -25,7 +25,9 @@
     "build": "tsc",
     "prepare": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "local:up": "bash .local/setup.sh",
+    "local:down": "bash .local/teardown.sh"
   },
   "dependencies": {
     "@aws-sdk/client-sns": "^3.700.0",

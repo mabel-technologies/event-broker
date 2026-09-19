@@ -126,6 +126,78 @@ When using a local path in the consumer's `package.json` (e.g. `"@aisound/event-
    pnpm install
    ```
 
+## Local development with Floci
+
+`.local/` provisions a local mirror of the AWS event architecture described in
+[`knowledgebase/aws/event-architecture.md`](../knowledgebase/aws/event-architecture.md) and
+[`knowledgebase/event-architecture.md`](../knowledgebase/event-architecture.md), using
+[Floci](https://floci.io/) (a LocalStack-compatible AWS emulator) so backend services can publish
+and consume real SNS/SQS/EventBridge/S3 events against `localhost:4566` instead of AWS. Content
+moderation/tagging consumers are **not** stood up by this — only the topics, queues, and rules they
+plug into (see [Scope](#scope) below).
+
+### Quick start
+
+```bash
+cd event-broker
+npm run local:up     # or: bash .local/setup.sh
+```
+
+This starts Floci in Docker, then provisions everything (SNS topics, SQS queues + subscriptions,
+S3 bucket, EventBridge rules), and prints the exact env vars/values to paste into each backend
+service's `.env.local`. Re-running `local:up` is safe — resource creation is idempotent.
+
+```bash
+npm run local:down   # or: bash .local/teardown.sh
+```
+
+stops Floci and wipes its in-memory state (queues, topics, messages — everything is re-created from
+scratch on the next `local:up`).
+
+### Pointing a service at Floci
+
+Every service already reads its SNS/SQS config from env vars (see the per-repo table in
+[`knowledgebase/event-architecture.md`](../knowledgebase/event-architecture.md)) — nothing in
+`event-broker`'s code needs to change. The AWS SDK v3 clients here are created with only `{ region }`,
+so redirecting them to Floci is a matter of env vars alone: add these four to each service's
+`.env.local`, alongside whichever `EVENT_BROKER_SQS_QUEUE_*_URL` / `EVENT_BROKER_SNS_TOPIC_ARN` lines
+`local:up` printed for that service:
+
+```bash
+AWS_ENDPOINT_URL=http://localhost:4566
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+AWS_DEFAULT_REGION=us-east-1
+EVENT_BROKER_REGION=us-east-1
+```
+
+`AWS_ENDPOINT_URL` is read natively by `@aws-sdk/client-sns`/`@aws-sdk/client-sqs` (v3.535+; this
+repo is on 3.700) — no `endpoint` override needs to be added to `SnsPublisher`/`SqsConsumer`.
+
+### What gets created
+
+| AWS concept | Real name (stage) | Local name |
+|---|---|---|
+| Platform events SNS topic | `aisound-stage-platform-events` | `aisound-local-platform-events` |
+| Per-consumer SQS queues | `..._<auth\|data\|music\|networkgraph\|social\|...>_queue` | same suffixes, `aisound-local-platform-events_*` |
+| `data2` own topic + queue | `aisound-stage-data2-events` → `..._data_queue` (naming bug, kept) | `aisound-local-data2-events` → `..._data_queue` |
+| `music2` own topic + queue | `aisound-stage-music2-events` → `..._music_queue` | `aisound-local-music2-events` → `..._music_queue` |
+| Upload bucket | `aisound-auclair-be-local` | `aisound-local-uploads` |
+| Upload fan-out rules | `uploads-fanout-rule-{image,mp3,mp4}` (EventBridge, no SNS) | `uploads-fanout-rule-{image,mp3,mp4}-local` |
+| Tagging/moderation queues | `stage-aisound-tags-queue`, `content_moderation_fast_queue`, `stage-ai-sound-am-sqs` | `aisound_tags_queue_local`, `content_moderation_fast_queue_local`, `ai_sound_am_sqs_local` |
+
+`local:up` subscribes each queue with `RawMessageDelivery=true`, matching how
+`social-fe-devops/script/sync_sns.py` creates real subscriptions (the message body is the plain
+`{eventType, event_id, payload}` envelope, not wrapped in an SNS `Notification`). No filter policy
+is set, so every queue receives every message published to its topic.
+
+### Scope
+
+Stood up: platform SNS/SQS fan-out, the S3 upload bucket, and the EventBridge upload/moderation
+routing (rules + target queues). **Not** stood up: any Lambda, the content-moderation/tagging EC2
+workers, or MediaConvert — those are consumers of the queues above, not part of the event plumbing
+itself, and are still to be wired up locally later.
+
 ## License
 
 MIT
