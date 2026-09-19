@@ -225,6 +225,56 @@ anyone adds an event), the script **regenerates it from source**, the same way C
 Repo paths are hardcoded relative to this folder (`../auclair-be-main`, etc.) since this whole
 `auclair` folder is one monorepo checkout — a repo not present is skipped, not an error.
 
+### Floci UI
+
+[Floci UI](https://github.com/floci-io/floci-ui) is an official AWS-console-style web dashboard for
+browsing whatever's provisioned in a Floci instance — topics, queues (with live message counts),
+buckets, EventBridge buses, and more. It ships no prebuilt "just run it" image (only the frontend
+has one on Docker Hub; the API side has to be built from source), so `.local/ui.sh` clones the real
+`floci-ui` repo into `.local/floci-ui/` on first run and builds both halves from it — same
+Dockerfiles, same bind-mount layout as their own dev `docker-compose.yml`, just pointed at our
+`floci` container instead of theirs.
+
+```bash
+npm run local:ui        # or: bash .local/ui.sh   (first run: clones + builds, ~1-2 min)
+```
+
+Requires `local:up` to already be running (`floci` must be healthy first). Opens at
+**http://localhost:4500**. Stop it with:
+
+```bash
+npm run local:ui:down   # or: bash .local/ui-down.sh
+```
+
+This leaves `floci` itself running — only the UI containers stop.
+
+**Example — watching a published event show up:**
+
+```bash
+# 1. local:up, then publish a test event straight to the platform-events topic
+#    (a real service would do this through EventBrokerService.publish(), same effect):
+docker run --rm --network local_default \
+  -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_DEFAULT_REGION=us-east-1 \
+  amazon/aws-cli:2.17.62 --endpoint-url=http://floci:4566 sns publish \
+  --topic-arn arn:aws:sns:us-east-1:000000000000:aisound-local-platform-events \
+  --message '{"eventType":"user.login","event_id":"demo-1","payload":{"eventId":"demo-1","userId":"demo-user"}}' \
+  --message-attributes '{"eventType":{"DataType":"String","StringValue":"user.login"}}'
+```
+
+Then open http://localhost:4500 → **Cloud Explorer** (left sidebar) → service dropdown **SQS**.
+Every consumer queue that has `user.login` in its filter policy (per `local:filters` —
+`auth`, `music`, `networkgraph`, `personalisationsocial`, `social`) shows **Messages: 1**;
+`content_moderation_fast_queue_local` and other unrelated queues stay at 0. Click a queue name to
+see its attributes (queue URL, ARN, retention, etc.) in the right-hand panel — this build shows
+queue-level detail, not individual message bodies, so `sqs receive-message` via the CLI is still
+how you'd inspect a message's actual JSON.
+
+**Console Home** (the landing page) gives a one-glance count per service — after `local:up` you'll
+see `SQS: 16`, `EventBridge: 1` (the `default` bus; the three `uploads-fanout-rule-*` rules on it
+aren't broken out individually in this build), and **Storage: 1** (`aisound-local-uploads`, click
+through to confirm the bucket exists — object browsing wasn't exercised here since nothing's been
+uploaded to it yet).
+
 ### Scope
 
 Stood up: platform SNS/SQS fan-out, the S3 upload bucket, and the EventBridge upload/moderation

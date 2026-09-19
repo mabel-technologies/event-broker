@@ -28,7 +28,9 @@
     "test:watch": "vitest",
     "local:up": "bash .local/setup.sh",
     "local:down": "bash .local/teardown.sh",
-    "local:filters": "bash .local/provision/sync-filters.sh"
+    "local:filters": "bash .local/provision/sync-filters.sh",
+    "local:ui": "bash .local/ui.sh",
+    "local:ui:down": "bash .local/ui-down.sh"
   },
   "dependencies": {
     "@aws-sdk/client-sns": "^3.700.0",

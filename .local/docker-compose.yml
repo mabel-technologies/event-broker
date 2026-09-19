@@ -32,3 +32,48 @@ services:
       - ./provision:/provision
     restart: "no"
 
+  # Optional: the official web console (see ui.sh / README "Floci UI"). Not started by plain
+  # `docker compose up` -- only via `--profile ui` (ui.sh clones floci-ui into ./floci-ui first,
+  # since floci-ui only ships a prebuilt frontend image, no prebuilt API image -- both are built
+  # from source here, mirroring floci-ui's own dev docker-compose.yml exactly, dev Dockerfiles and
+  # bind mounts included, since those Dockerfiles COPY only package.json and expect source mounted
+  # in at runtime).
+  floci-api:
+    profiles: ["ui"]
+    build:
+      context: ./floci-ui/packages/api
+      dockerfile: Dockerfile.dev
+    container_name: event-broker-floci-api
+    volumes:
+      - ./floci-ui/packages/api/src:/app/src
+    environment:
+      FLOCI_ENDPOINT: http://floci:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      PORT: "4501"
+    depends_on:
+      floci:
+        condition: service_healthy
+    ports:
+      - "4501:4501"
+
+  floci-ui:
+    profiles: ["ui"]
+    build:
+      context: ./floci-ui/packages/frontend
+      dockerfile: Dockerfile.dev
+    container_name: event-broker-floci-ui
+    volumes:
+      - ./floci-ui/packages/frontend/src:/app/src
+      - ./floci-ui/packages/frontend/index.html:/app/index.html
+      - ./floci-ui/packages/frontend/vite.config.ts:/app/vite.config.ts
+      - ./floci-ui/packages/frontend/tsconfig.json:/app/tsconfig.json
+      - ./floci-ui/packages/frontend/tsconfig.node.json:/app/tsconfig.node.json
+    environment:
+      API_TARGET: http://floci-api:4501
+      VITE_USE_POLLING: "true"
+    depends_on:
+      - floci-api
+    ports:
+      - "4500:4500"
