@@ -1,3 +1,5 @@
 /node_modules
 .env
 .local/provision/generated.env
+.local/provision/event_registry.json
+.local/provision/.scratch/

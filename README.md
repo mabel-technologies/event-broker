@@ -189,7 +189,41 @@ repo is on 3.700) — no `endpoint` override needs to be added to `SnsPublisher`
 `local:up` subscribes each queue with `RawMessageDelivery=true`, matching how
 `social-fe-devops/script/sync_sns.py` creates real subscriptions (the message body is the plain
 `{eventType, event_id, payload}` envelope, not wrapped in an SNS `Notification`). No filter policy
-is set, so every queue receives every message published to its topic.
+is set at this point — every queue receives every message until you run `local:filters` (next
+section).
+
+### Filter policies
+
+```bash
+npm run local:filters   # or: bash .local/provision/sync-filters.sh
+```
+
+Run this after `local:up` (once, or any time a repo's `.publish(...)`/`@OnSubscribe(...)` calls
+change) to scope each subscription down to the events that consumer actually wants — exactly what
+`social-fe-devops/script/sync_sns.py` does against real AWS on push to its `events` branch. Rather
+than hardcoding the shared registry's 256 events into this repo (which would go stale the moment
+anyone adds an event), the script **regenerates it from source**, the same way CI does:
+
+1. Seeds `.local/provision/event_registry.json` from `social-fe-devops/event_registry.json` — the
+   real shared registry, so consumers with no repo cloned locally (`data2`, `music2`,
+   `personalisation`, `personalisationsocial`, `subscription` — none of these map to a cloned repo,
+   per [`knowledgebase/event-architecture.md`](../knowledgebase/event-architecture.md)) keep their
+   last-known-real values instead of losing their filter entirely.
+2. For each backend repo cloned alongside `event-broker` (`auclair-be-main`, `social-be`,
+   `auclair-be-music1`, `auclair-be-data`, `auclair-be-networkgraph`), runs this repo's own
+   `generate-event-registry.js` against that repo's `src/` (via a scratch dir with a symlinked
+   `src/` — read-only, never writes into the repo itself, which matters because two of the five
+   commit their `event_registry.json` instead of gitignoring it) and merges the result in with
+   `sync-event-registry.js`, using the same `EVENT_REGISTRY_SERVICE_NAME` short name each repo's
+   real `*-cicd.yml` sets (`auth`/`social`/`music`/`data`/`networkgraph` — **not** each repo's
+   `package.json` name, since `auclair-be-main` and `social-be` both ship the name
+   `"auclair-be-framework"`, a real bug in this monorepo worked around in real CI the same way).
+3. Applies the merged registry's per-consumer event lists as each subscription's `FilterPolicy` on
+   the local `aisound-local-platform-events` topic (`apply-filters.mjs`), skipping consumers with
+   no known events (left unfiltered rather than blocked).
+
+Repo paths are hardcoded relative to this folder (`../auclair-be-main`, etc.) since this whole
+`auclair` folder is one monorepo checkout — a repo not present is skipped, not an error.
 
 ### Scope
 
