@@ -1,10 +1,11 @@
+import { $log } from "@tsed/logger";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RetryableEventError } from "../errors/EventErrors.js";
 import type { ClaimResult, IdempotencyStore } from "../idempotency/IdempotencyStore.js";
 import { assertUniqueHandlerIds, eventBrokerDedupKey } from "../idempotency/IdempotencyStore.js";
 import { setIdempotencyRuntime } from "../idempotency/runtime.js";
 import type { EventBrokerConfig } from "../types/EventBrokerConfig.js";
-import { OnSubscribe } from "./OnSubscribe.js";
+import { OnSubscribe, registeredHandlers, resetHandlerRegistry } from "./OnSubscribe.js";
 
 vi.mock("@tsed/event-emitter", () => ({
   OnEvent: () => (_t: object, _k: string, d: PropertyDescriptor) => d,
@@ -61,7 +62,10 @@ function subject(store: MemoryStore, opts: Parameters<typeof OnSubscribe>[1] = {
   return { listener: new Listener(), runs, store };
 }
 
-afterEach(() => setIdempotencyRuntime(null));
+afterEach(() => {
+  setIdempotencyRuntime(null);
+  resetHandlerRegistry();
+});
 
 describe("@OnSubscribe idempotency", () => {
   it("mode=off runs the handler and never touches the store", async () => {
@@ -154,6 +158,90 @@ describe("@OnSubscribe idempotency", () => {
     const { listener } = subject(store);
     await listener.onPostCreated({} as { eventId: string });
     expect(store.calls.filter((c) => c.startsWith("claim:evt:social:e1"))).toHaveLength(1); // only the sync-throw handler claimed
+  });
+});
+
+describe("multiple listeners on one event", () => {
+  it("refuses a duplicate handler id at decoration time, across classes", () => {
+    class A {
+      @OnSubscribe("social.post.created", { id: "post.created#index" })
+      async a() {}
+    }
+    expect(() => {
+      class B {
+        @OnSubscribe("social.post.created", { id: "post.created#index" })
+        async b() {}
+      }
+      return B;
+    }).toThrow(/already used by A\.a/);
+    expect(registeredHandlers().map((h) => h.handlerId)).toEqual(["post.created#index"]);
+    return A;
+  });
+
+  it("allows the same declaration to re-register (test runners, hot reload)", () => {
+    const declare = () => {
+      class A {
+        @OnSubscribe("x", { id: "x#a" })
+        async a() {}
+      }
+      return A;
+    };
+    declare();
+    expect(() => declare()).not.toThrow();
+  });
+
+  it("consumer semantics: two listeners, one fails → message retried; on redelivery only the failed one runs", async () => {
+    const store = new MemoryStore();
+    runtime("enforce", store);
+    const runs: string[] = [];
+    let failB = true;
+    class Index {
+      @OnSubscribe("social.post.created", { id: "post.created#index" })
+      async on(p: { eventId: string }) {
+        runs.push(`index:${p.eventId}`);
+      }
+    }
+    class Notify {
+      @OnSubscribe("social.post.created", { id: "post.created#notify" })
+      async on(p: { eventId: string }) {
+        runs.push(`notify:${p.eventId}`);
+        if (failB) throw new Error("push provider down");
+      }
+    }
+    const listeners = [new Index(), new Notify()];
+    // what SqsConsumer does: emitAsync = every listener runs, Promise.all reports the first rejection
+    const deliver = () => Promise.all(listeners.map((l) => l.on({ eventId: "e1" })));
+    await expect(deliver()).rejects.toThrow("push provider down"); // → message left on the queue
+    failB = false;
+    await expect(deliver()).resolves.toBeDefined(); // redelivery → ack
+    expect(runs).toEqual(["index:e1", "notify:e1", "notify:e1"]); // the index listener did not run again
+  });
+
+  it("logs every failing listener, not only the first one the emitter reports", async () => {
+    const store = new MemoryStore();
+    runtime("off", store);
+    const errors: unknown[] = [];
+    const spy = vi.spyOn($log, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args[0]);
+      return $log;
+    });
+    class A {
+      @OnSubscribe("x", { id: "x#a" })
+      async a() {
+        throw new Error("a failed");
+      }
+    }
+    class B {
+      @OnSubscribe("x", { id: "x#b" })
+      async b() {
+        throw new Error("b failed");
+      }
+    }
+    await expect(Promise.all([new A().a(), new B().b()])).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    const failed = errors.filter((e) => (e as { outcome?: string })?.outcome === "listener_failed").map((e) => (e as { handlerId: string }).handlerId);
+    expect(failed.sort()).toEqual(["x#a", "x#b"]);
+    spy.mockRestore();
   });
 });
 
