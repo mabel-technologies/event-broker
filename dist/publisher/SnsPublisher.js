@@ -10,7 +10,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+import { SNSClient, PublishCommand, GetTopicAttributesCommand } from "@aws-sdk/client-sns";
 import { Configuration, Injectable } from "@tsed/di";
 import { $log } from "@tsed/logger";
 function extractEventIdFromPayload(payload) {
@@ -34,6 +34,18 @@ let SnsPublisher = class SnsPublisher {
         }
         this.config = brokerConfig;
         this.client = new SNSClient({ region: brokerConfig.region });
+    }
+    /**
+     * Called by the module at boot. A missing or unreachable topic fails startup instead of the
+     * first publish. A service that never publishes may leave sns.topicArn empty.
+     */
+    async assertReady() {
+        const topicArn = this.config.sns?.topicArn?.trim();
+        if (!topicArn) {
+            $log.warn("[event-broker] sns.topicArn is empty; publish() will throw until it is set");
+            return;
+        }
+        await this.client.send(new GetTopicAttributesCommand({ TopicArn: topicArn }));
     }
     async publish(eventType, payload) {
         const topicArn = this.config.sns?.topicArn?.trim();

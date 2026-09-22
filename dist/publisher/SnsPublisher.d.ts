@@ -19,5 +19,10 @@ export declare class SnsPublisher {
     private client;
     private readonly config;
     constructor(config: DIConfiguration);
+    /**
+     * Called by the module at boot. A missing or unreachable topic fails startup instead of the
+     * first publish. A service that never publishes may leave sns.topicArn empty.
+     */
+    assertReady(): Promise<void>;
     publish(eventType: string, payload: unknown): Promise<void>;
 }

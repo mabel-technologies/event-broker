@@ -9,7 +9,10 @@ import { EventBrokerService } from "../services/EventBrokerService.js";
   providers: [SnsPublisher, SqsConsumer, EventBrokerService],
 })
 export class EventBrokerModule {
-  constructor(@Inject(SqsConsumer) private sqsConsumer: SqsConsumer) {}
+  constructor(
+    @Inject(SqsConsumer) private sqsConsumer: SqsConsumer,
+    @Inject(SnsPublisher) private snsPublisher: SnsPublisher,
+  ) {}
 
   /**
    * Optional: use when not using Ts.ED Configuration eventBroker key.
@@ -19,11 +22,15 @@ export class EventBrokerModule {
     return [EventBrokerModule];
   }
 
-  $onInit(): void {
+  /** Validate the topic and queue before polling: a service that cannot reach them must not report healthy. */
+  async $onInit(): Promise<void> {
+    await this.snsPublisher.assertReady();
+    await this.sqsConsumer.assertReady();
     this.sqsConsumer.start();
   }
 
-  $onDestroy(): void {
-    this.sqsConsumer.stop();
+  /** Returns the promise so Ts.ED waits for the drain. */
+  $onDestroy(): Promise<void> {
+    return this.sqsConsumer.stop();
   }
 }

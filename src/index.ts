@@ -2,6 +2,11 @@ export * from "./module/EventBrokerModule.js";
 export * from "./services/EventBrokerService.js";
 export * from "./decorators/OnSubscribe.js";
 export * from "./types/EventBrokerConfig.js";
+export * from "./errors/EventErrors.js";
+export { IDEMPOTENCY_STORE, eventBrokerDedupKey, assertUniqueHandlerIds } from "./idempotency/IdempotencyStore.js";
+export type { IdempotencyStore, ClaimResult } from "./idempotency/IdempotencyStore.js";
+export { setIdempotencyRuntime } from "./idempotency/runtime.js";
+export { eventBrokerConfigFromEnv, EVENT_BROKER_ENV, type FromEnvOptions } from "./config/fromEnv.js";
 export { setEventBrokerConfig, getEventBrokerConfig } from "./config/eventBrokerConfig.js";
 export {
   SnsPublisher,
@@ -10,4 +15,4 @@ export {
   SnsMessageBody,
   BrokerPayloadWithEventId,
 } from "./publisher/SnsPublisher.js";
-export { SqsConsumer } from "./consumer/SqsConsumer.js";
+export { SqsConsumer, type EmitterLike, type ConsumeOutcome } from "./consumer/SqsConsumer.js";

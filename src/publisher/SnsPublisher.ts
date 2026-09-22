@@ -1,4 +1,4 @@
-import { SNSClient, PublishCommand, PublishCommandInput } from "@aws-sdk/client-sns";
+import { SNSClient, PublishCommand, PublishCommandInput, GetTopicAttributesCommand } from "@aws-sdk/client-sns";
 import { Configuration, Injectable } from "@tsed/di";
 import type { DIConfiguration } from "@tsed/di";
 import { $log } from "@tsed/logger";
@@ -49,6 +49,19 @@ export class SnsPublisher {
     }
     this.config = brokerConfig;
     this.client = new SNSClient({ region: brokerConfig.region });
+  }
+
+  /**
+   * Called by the module at boot. A missing or unreachable topic fails startup instead of the
+   * first publish. A service that never publishes may leave sns.topicArn empty.
+   */
+  async assertReady(): Promise<void> {
+    const topicArn = this.config.sns?.topicArn?.trim();
+    if (!topicArn) {
+      $log.warn("[event-broker] sns.topicArn is empty; publish() will throw until it is set");
+      return;
+    }
+    await this.client.send(new GetTopicAttributesCommand({ TopicArn: topicArn }));
   }
 
   async publish(eventType: string, payload: unknown): Promise<void> {

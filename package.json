@@ -1,6 +1,6 @@
 {
   "name": "@mabel-technologies/event-broker",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Reusable event broker: SNS publish, SQS poll, re-emit via @tsed/event-emitter",
   "type": "module",
   "main": "dist/index.js",
@@ -9,6 +9,27 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./typeorm": {
+      "types": "./dist/typeorm/index.d.ts",
+      "default": "./dist/typeorm/index.js"
+    },
+    "./neo4j": {
+      "types": "./dist/neo4j/index.d.ts",
+      "default": "./dist/neo4j/index.js"
+    },
+    "./dynamo": {
+      "types": "./dist/dynamo/index.d.ts",
+      "default": "./dist/dynamo/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./package.json": "./package.json",
+    "./heartbeat": {
+      "types": "./dist/heartbeat/index.d.ts",
+      "default": "./dist/heartbeat/index.js"
     }
   },
   "files": [
@@ -30,7 +51,8 @@
     "local:down": "bash .local/teardown.sh",
     "local:filters": "bash .local/provision/sync-filters.sh",
     "local:ui": "bash .local/ui.sh",
-    "local:ui:down": "bash .local/ui-down.sh"
+    "local:ui:down": "bash .local/ui-down.sh",
+    "test:floci": "AWS_ENDPOINT_URL=http://localhost:4566 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1 vitest run --testTimeout=90000"
   },
   "dependencies": {
     "@aws-sdk/client-sns": "^3.700.0",
@@ -41,15 +63,37 @@
     "uuid": "^10.0.0"
   },
   "peerDependencies": {
-    "@tsed/core": ">=8.0.0"
+    "@tsed/core": ">=8.0.0",
+    "typeorm": ">=0.3.20",
+    "neo4j-driver": ">=5.0.0",
+    "@aws-sdk/client-dynamodb": "^3.1137.0",
+    "@aws-sdk/client-cloudwatch": "^3.1137.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^10.0.0",
+    "neo4j-driver": "^5.28.3",
+    "typeorm": "^0.3.31",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0",
-    "@types/node": "^20.0.0",
-    "@types/uuid": "^10.0.0"
+    "@aws-sdk/client-dynamodb": "^3.1137.0",
+    "@aws-sdk/client-cloudwatch": "^3.1137.0"
   },
   "engines": {
     "node": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "typeorm": {
+      "optional": true
+    },
+    "neo4j-driver": {
+      "optional": true
+    },
+    "@aws-sdk/client-dynamodb": {
+      "optional": true
+    },
+    "@aws-sdk/client-cloudwatch": {
+      "optional": true
+    }
   }
 }

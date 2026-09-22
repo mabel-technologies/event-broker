@@ -1,4 +1,4 @@
-# @aisound/event-broker
+# @mabel-technologies/event-broker
 
 Reusable TypeScript npm package for publishing events to AWS SNS, polling AWS SQS, and re-emitting events internally via `@tsed/event-emitter`. Usable in both publisher and consumer mode across multiple Ts.ED services.
 
@@ -12,7 +12,7 @@ Reusable TypeScript npm package for publishing events to AWS SNS, polling AWS SQ
 ## Installation
 
 ```bash
-npm install @aisound/event-broker @tsed/core @tsed/di @tsed/event-emitter @aws-sdk/client-sns @aws-sdk/client-sqs
+npm install @mabel-technologies/event-broker @tsed/core @tsed/di @tsed/event-emitter @aws-sdk/client-sns @aws-sdk/client-sqs
 ```
 
 ## Configuration
@@ -22,7 +22,7 @@ Use **`EventBrokerModule.forRoot(config)`** in your Ts.ED `imports`. This stores
 **1. Build your config (e.g. from env):**
 
 ```ts
-import type { EventBrokerConfig } from "@aisound/event-broker";
+import type { EventBrokerConfig } from "@mabel-technologies/event-broker";
 
 const eventBrokerConfig: EventBrokerConfig = {
   region: process.env.EVENT_BROKER_REGION || "us-east-1",
@@ -40,8 +40,8 @@ const eventBrokerConfig: EventBrokerConfig = {
 
 ```ts
 import { Configuration } from "@tsed/di";
-import { EventBrokerModule } from "@aisound/event-broker";
-import type { EventBrokerConfig } from "@aisound/event-broker";
+import { EventBrokerModule } from "@mabel-technologies/event-broker";
+import type { EventBrokerConfig } from "@mabel-technologies/event-broker";
 
 const eventBrokerConfig: EventBrokerConfig = { ... }; // see above
 
@@ -64,7 +64,7 @@ Inject `EventBrokerService` and call `publish`:
 
 ```ts
 import { Injectable } from "@tsed/di";
-import { EventBrokerService } from "@aisound/event-broker";
+import { EventBrokerService } from "@mabel-technologies/event-broker";
 
 @Injectable()
 export class MyService {
@@ -82,7 +82,7 @@ Use the `@OnSubscribe` decorator to handle events re-emitted from SQS:
 
 ```ts
 import { Injectable } from "@tsed/di";
-import { OnSubscribe } from "@aisound/event-broker";
+import { OnSubscribe } from "@mabel-technologies/event-broker";
 
 @Injectable()
 export class UserEventHandler {
@@ -98,15 +98,98 @@ export class UserEventHandler {
 | Key | Type | Description |
 |-----|------|-------------|
 | `region` | string | AWS region for SNS/SQS clients |
+| `serviceName` | string | Registry short name (`social`, `auth`, `data`, `networkgraph`). Part of every dedup key. Falls back to `SERVICE_NAME`. |
 | `sns.topicArn` | string | SNS topic ARN for publishing |
 | `sqs.queueUrl` | string | SQS queue URL for polling |
 | `sqs.enabled` | boolean | If `false`, SQS consumer does not poll |
-| `sqs.maxMessages` | number | Max messages per ReceiveMessage call (default: 10) |
+| `sqs.maxMessages` | number | Max messages per ReceiveMessage call (default: 10). Lower it for services with slow handlers. |
 | `sqs.pollingWaitTimeSeconds` | number | Long poll wait time in seconds (default: 20) |
+| `sqs.ackOnSuccess` | boolean | Delete a message only after every listener resolved (default: `false` = delete regardless, the historical behaviour). Requires a RedrivePolicy on the queue; boot fails otherwise. |
+| `sqs.visibilityTimeoutSeconds` | number | Must equal the queue's VisibilityTimeout; the lease is extended at half this interval while a handler runs (default: 30) |
+| `sqs.handlerSlowMs` | number | Log `event.handler_slow` past this (default: 60000). The work is not cancelled. |
+| `sqs.retryBaseSeconds` | number | First retry delay; doubles per receive, capped at 900 s, jittered (default: 10) |
+| `sqs.drainTimeoutMs` | number | How long `stop()` waits for in-flight handlers before releasing their messages (default: 25000). Keep below the pod's `terminationGracePeriodSeconds`. |
+| `idempotency.mode` | `off` \| `shadow` \| `enforce` | `shadow` claims and counts duplicates but always runs the handler; `enforce` short-circuits completed listeners (default: `off`) |
+| `idempotency.leaseMs` | number | One run's lease (default: 2 × visibility) |
+| `idempotency.retentionSeconds` | number | How long a completed marker is kept; must cover the DLQ retention (default: 14 days) |
+
+### Building the config from the environment
+
+```ts
+import { eventBrokerConfigFromEnv } from "@mabel-technologies/event-broker";
+
+const eventBrokerConfig = eventBrokerConfigFromEnv({ serviceName: "social" });
+```
+
+Reads `EVENT_BROKER_REGION`, `EVENT_BROKER_SNS_TOPIC_ARN`, `EVENT_BROKER_SQS_QUEUE_URL`,
+`EVENT_BROKER_SQS_MAX_MESSAGES`, `EVENT_BROKER_SQS_POLL_WAIT`, `EVENT_BROKER_SQS_ACK_ON_SUCCESS`,
+`EVENT_BROKER_SQS_VISIBILITY_TIMEOUT` and `EVENT_BROKER_IDEMPOTENCY_MODE` (the names are exported
+as `EVENT_BROKER_ENV`). A chart that still uses another queue variable name can pass
+`queueUrlVar: "EVENT_BROKER_SQS_QUEUE_AUTH_URL"` until it is renamed.
+
+## Failure handling (1.1.0)
+
+With `sqs.ackOnSuccess=false` (the default) behaviour is unchanged from 1.0.x: the message is
+deleted whether or not the handler succeeded. What is new is visibility: every outcome is logged
+as a structured `{ metric: "event_outcome", outcome: acked | retry | poisoned | no_listener | malformed }`
+line, handler errors are labelled `event.handler_failed` (no longer "SQS receive failed"), one
+failing message no longer aborts its batch-mates, receive errors back off 1 s → 30 s, and the
+module validates the topic and queue at boot.
+
+With `sqs.ackOnSuccess=true`:
+
+- a handler that throws leaves the message on the queue; it is redelivered with exponential,
+  jittered backoff and dead-lettered by the queue's own `maxReceiveCount`;
+- `NonRetryableEventError`, a message with no registered listener, and a malformed body are
+  made visible immediately so the redrive policy moves them to the DLQ — the library never
+  `SendMessage`s to a DLQ, so console redrive keeps working;
+- the lease is extended while a handler runs; `stop()` drains in-flight work and hands back
+  anything unfinished with visibility 0.
+
+```ts
+import { NonRetryableEventError, OnSubscribe } from "@mabel-technologies/event-broker";
+
+@OnSubscribe("social.post.created", { id: "post.created.index" })   // explicit, stable id
+async onPostCreated(payload: PostCreatedPayload) {
+  if (!payload.postId) throw new NonRetryableEventError("postId missing");   // → DLQ
+  await this.search.index(payload.postId);                                  // a timeout → retried
+}
+```
+
+### Idempotency
+
+Set `idempotency.mode` and register an `IdempotencyStore` under `IDEMPOTENCY_STORE`. The
+decorator keys on `(serviceName, eventId, handler id)`, so a redelivery re-runs only the
+listeners that did not complete. It fails closed: if the store is unreachable the listener
+rejects, the message is not acknowledged, and the queue's age alarm reports it.
+
+| Adapter | Import | For |
+|---|---|---|
+| `SqlInboxIdempotencyStore` | `@mabel-technologies/event-broker/typeorm` | MySQL / Postgres services (peer: `typeorm`). Ships `EventInboxEntity`, the `CreateEventInbox…` migration and `purgeExpiredInbox`. |
+| `Neo4jInboxStore` | `@mabel-technologies/event-broker/neo4j` | Graph services (peer: `neo4j-driver`). Same `ProcessedEvent` node the graph transaction uses. |
+| `DynamoIdempotencyStore` | `@mabel-technologies/event-broker/dynamo` | Handlers whose side effect is external (push, chat). Table: `pk` (S), TTL attribute `expires`. Peer: `@aws-sdk/client-dynamodb`. |
+
+Handlers that write to the same database may set the marker inside their own transaction using
+`eventBrokerDedupKey(service, eventId, handlerId)`; the decorator's `complete()` is then a
+harmless repeat. Add `assertUniqueHandlerIds([...])` to a spec so ids stay explicit and unique.
+
+### Outbox (producers)
+
+`@mabel-technologies/event-broker/typeorm` also ships `EventOutboxEntity`, the
+`CreateEventOutbox…` migration, `writeWithOutbox(ds, work, event)` to insert the row in the same
+transaction as the business write, and `OutboxRelay` — a scheduler-agnostic core whose
+`runOnce()` the service calls from a repeatable job. Enable it only after consumers enforce
+idempotency: an uncertain publish is retried and produces a duplicate.
+
+### Rollout order
+
+DLQs and enforcing idempotency must be live before a service flips `ackOnSuccess`; the outbox
+relay comes after that. Flipping the flag alone turns silent loss into poison-message loops and
+duplicate side effects.
 
 ## Local development (linking from another app)
 
-When using a local path in the consumer's `package.json` (e.g. `"@aisound/event-broker": "file:../event-broker"`):
+When using a local path in the consumer's `package.json` (e.g. `"@mabel-technologies/event-broker": "file:../event-broker"`):
 
 1. **In event-broker repo:** build so `dist/` is up to date.
    ```bash
@@ -118,7 +201,7 @@ When using a local path in the consumer's `package.json` (e.g. `"@aisound/event-
    cd your-server && pnpm install
    ```
 
-3. **Confirm the server uses the new code:** check that `node_modules/@aisound/event-broker/dist/module/EventBrokerModule.js` contains the latest logic (e.g. `forRoot`). If you use `file:../event-broker`, pnpm usually symlinks the folder, so after step 1 the server already sees the new `dist/`; step 2 can still help clear cache.
+3. **Confirm the server uses the new code:** check that `node_modules/@mabel-technologies/event-broker/dist/module/EventBrokerModule.js` contains the latest logic (e.g. `forRoot`). If you use `file:../event-broker`, pnpm usually symlinks the folder, so after step 1 the server already sees the new `dist/`; step 2 can still help clear cache.
 
 4. **If it still uses old code:** remove the linked package and reinstall.
    ```bash
