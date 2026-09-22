@@ -1,10 +1,11 @@
 import { EventInboxEntity } from "./EventInboxEntity.js";
 const ABANDONED_ROW_TTL_MS = 86400000;
-function isUniqueViolation(err) {
-    const e = err;
-    const code = e?.code ?? e?.driverError?.code;
-    const errno = e?.errno ?? e?.driverError?.errno;
-    return code === "ER_DUP_ENTRY" || errno === 1062 || code === "23505" || code === "SQLITE_CONSTRAINT";
+/** MySQL reports affectedRows; Postgres returns the RETURNING rows (empty when the insert was skipped). */
+function insertedRows(raw) {
+    if (Array.isArray(raw))
+        return raw.length;
+    const affected = raw?.affectedRows;
+    return typeof affected === "number" ? affected : 0;
 }
 /**
  * IdempotencyStore on the service's own SQL database (MySQL or Postgres via TypeORM).
@@ -30,14 +31,18 @@ export class SqlInboxIdempotencyStore {
         const now = new Date();
         const leaseUntil = new Date(now.getTime() + leaseMs);
         const repo = this.repo();
-        try {
-            await repo.insert({ dedupKey: key, state: "inflight", token, leaseUntil, expiresAt: new Date(now.getTime() + ABANDONED_ROW_TTL_MS) });
+        // INSERT IGNORE / ON CONFLICT DO NOTHING: an existing row is the expected case on a redelivery and
+        // must not surface as a query error in the service's logs. Anything else (DB down) propagates and
+        // the decorator fails closed.
+        const inserted = await repo
+            .createQueryBuilder()
+            .insert()
+            .into(EventInboxEntity)
+            .values({ dedupKey: key, state: "inflight", token, leaseUntil, expiresAt: new Date(now.getTime() + ABANDONED_ROW_TTL_MS) })
+            .orIgnore()
+            .execute();
+        if (insertedRows(inserted.raw) > 0)
             return "claimed";
-        }
-        catch (err) {
-            if (!isUniqueViolation(err))
-                throw err; // DB down → propagate → decorator fails closed
-        }
         // Row exists: take over an expired in-flight lease atomically, else report what is there.
         const taken = await repo
             .createQueryBuilder()

@@ -4,11 +4,11 @@ import { EventInboxEntity } from "./EventInboxEntity.js";
 
 const ABANDONED_ROW_TTL_MS = 86_400_000;
 
-function isUniqueViolation(err: unknown): boolean {
-  const e = err as { code?: string; errno?: number; driverError?: { code?: string; errno?: number } };
-  const code = e?.code ?? e?.driverError?.code;
-  const errno = e?.errno ?? e?.driverError?.errno;
-  return code === "ER_DUP_ENTRY" || errno === 1062 || code === "23505" || code === "SQLITE_CONSTRAINT";
+/** MySQL reports affectedRows; Postgres returns the RETURNING rows (empty when the insert was skipped). */
+function insertedRows(raw: unknown): number {
+  if (Array.isArray(raw)) return raw.length;
+  const affected = (raw as { affectedRows?: number } | undefined)?.affectedRows;
+  return typeof affected === "number" ? affected : 0;
 }
 
 /**
@@ -37,12 +37,17 @@ export class SqlInboxIdempotencyStore implements IdempotencyStore {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + leaseMs);
     const repo = this.repo();
-    try {
-      await repo.insert({ dedupKey: key, state: "inflight", token, leaseUntil, expiresAt: new Date(now.getTime() + ABANDONED_ROW_TTL_MS) });
-      return "claimed";
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err; // DB down → propagate → decorator fails closed
-    }
+    // INSERT IGNORE / ON CONFLICT DO NOTHING: an existing row is the expected case on a redelivery and
+    // must not surface as a query error in the service's logs. Anything else (DB down) propagates and
+    // the decorator fails closed.
+    const inserted = await repo
+      .createQueryBuilder()
+      .insert()
+      .into(EventInboxEntity)
+      .values({ dedupKey: key, state: "inflight", token, leaseUntil, expiresAt: new Date(now.getTime() + ABANDONED_ROW_TTL_MS) })
+      .orIgnore()
+      .execute();
+    if (insertedRows(inserted.raw) > 0) return "claimed";
     // Row exists: take over an expired in-flight lease atomically, else report what is there.
     const taken = await repo
       .createQueryBuilder()
