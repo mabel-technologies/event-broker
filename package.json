@@ -1,6 +1,6 @@
 {
   "name": "@mabel-technologies/event-broker",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Reusable event broker: SNS publish, SQS poll, re-emit via @tsed/event-emitter",
   "type": "module",
   "main": "dist/index.js",

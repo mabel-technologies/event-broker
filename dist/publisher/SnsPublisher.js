@@ -32,6 +32,9 @@ let SnsPublisher = class SnsPublisher {
         if (!brokerConfig?.region || !brokerConfig?.sns || !brokerConfig?.sqs) {
             throw new Error('[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).');
         }
+        if (!brokerConfig.sns.topicArn?.trim()) {
+            throw new Error("[event-broker] sns.topicArn is missing or empty.");
+        }
         this.config = brokerConfig;
         this.client = new SNSClient({ region: brokerConfig.region });
     }

@@ -1,16 +1,25 @@
 import {
-  SQSClient,
-  ReceiveMessageCommand,
+  ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
+  GetQueueAttributesCommand,
   Message,
+  ReceiveMessageCommand,
+  SQSClient,
 } from "@aws-sdk/client-sqs";
 import { Configuration, Inject, Injectable } from "@tsed/di";
 import type { DIConfiguration } from "@tsed/di";
 import { EventEmitterService } from "@tsed/event-emitter";
 import { $log } from "@tsed/logger";
 import { v7 as uuid7 } from "uuid";
+import { NonRetryableEventError } from "../errors/NonRetryableEventError.js";
 import { SnsMessageBody } from "../publisher/SnsPublisher.js";
 import { EventBrokerConfig } from "../types/EventBrokerConfig.js";
+
+const RECEIVE_BACKOFF_MIN_MS = 1_000;
+const RECEIVE_BACKOFF_MAX_MS = 30_000;
+const HANDLER_BACKOFF_MIN_SEC = 10;
+const HANDLER_BACKOFF_MAX_SEC = 900;
+const DRAIN_TIMEOUT_MS = 25_000;
 
 @Injectable()
 export class SqsConsumer {
@@ -19,7 +28,8 @@ export class SqsConsumer {
   private readonly serviceName: string;
   private polling = false;
   private pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private consecutivePollFailureLogged: boolean = false;
+  private receiveBackoffMs = 0;
+  private readonly inFlight = new Set<Promise<unknown>>();
 
   constructor(
     @Inject(EventEmitterService) private eventEmitter: EventEmitterService,
@@ -33,12 +43,15 @@ export class SqsConsumer {
         "[event-broker] Config not set. Add eventBroker to your @Configuration({ eventBroker: { region, sns: { topicArn }, sqs: { ... } } }).",
       );
     }
+    if (!brokerConfig.sqs.queueUrl?.trim()) {
+      throw new Error("[event-broker] sqs.queueUrl is missing or empty.");
+    }
     this.config = brokerConfig;
     this.client = new SQSClient({ region: brokerConfig.region });
     this.serviceName = process.env.SERVICE_NAME ?? "unknown";
   }
 
-  start(): void {
+  async start(): Promise<void> {
     if (this.polling) {
       $log.info("[event-broker] SQS consumer already polling, skip start");
       return;
@@ -53,20 +66,43 @@ export class SqsConsumer {
       );
       return;
     }
+    await this.assertQueueReachable();
     this.polling = true;
     $log.info("[event-broker] SQS consumer starting");
     this.poll();
   }
 
-  stop(): void {
+  private async assertQueueReachable(): Promise<void> {
+    try {
+      await this.client.send(
+        new GetQueueAttributesCommand({
+          QueueUrl: this.config.sqs.queueUrl,
+          AttributeNames: ["QueueArn"],
+        }),
+      );
+    } catch (err) {
+      const error = err as Error;
+      throw new Error(
+        `[event-broker] SQS queue unreachable at startup | queueUrl=${this.config.sqs.queueUrl} error=${error?.message}`,
+      );
+    }
+  }
+
+  async stop(): Promise<void> {
     this.polling = false;
     if (this.pollTimeoutId !== null) {
       clearTimeout(this.pollTimeoutId);
       this.pollTimeoutId = null;
     }
+    const inFlightCount = this.inFlight.size;
+    await Promise.race([
+      Promise.allSettled([...this.inFlight]),
+      new Promise((resolve) => setTimeout(resolve, DRAIN_TIMEOUT_MS)),
+    ]);
     $log.info("[event-broker] SQS consumer stopped", {
       queueUrl: this.config.sqs.queueUrl,
       serviceName: this.serviceName,
+      inFlightAtStop: inFlightCount,
     });
   }
 
@@ -82,92 +118,171 @@ export class SqsConsumer {
           MaxNumberOfMessages: this.config.sqs.maxMessages ?? 10,
           WaitTimeSeconds: this.config.sqs.pollingWaitTimeSeconds ?? 20,
           MessageAttributeNames: ["All"],
+          MessageSystemAttributeNames: ["ApproximateReceiveCount"],
         }),
       );
 
-      // Successful receive — next failure should log again
-      this.consecutivePollFailureLogged = false;
+      this.receiveBackoffMs = 0;
 
       const messages = response.Messages ?? [];
       for (const message of messages) {
-        await this.processMessage(message);
+        const task = this.processMessage(message);
+        this.inFlight.add(task);
+        try {
+          await task;
+        } catch (err) {
+          // processMessage isolates handler failures internally; a rejection here means the
+          // isolation logic itself broke, which must not take the rest of the batch down with it.
+          $log.error(
+            `[event-broker] event.processing_crashed | messageId=${message.MessageId ?? "n/a"} error=${(err as Error)?.message}`,
+          );
+        } finally {
+          this.inFlight.delete(task);
+        }
       }
     } catch (err) {
       const error = err as Error & { name?: string; code?: string };
-      const msg = error?.message ?? String(err);
-      if (!this.consecutivePollFailureLogged) {
-        this.consecutivePollFailureLogged = true;
-        const name = error?.name ?? "";
-        const code = error?.code ?? "";
-        $log.warn(
-          `[event-broker] SQS receive failed | name=${name} code=${code} error=${msg} | further errors suppressed until a successful poll`,
-        );
-      }
+      $log.warn(
+        `[event-broker] event.receive_failed | name=${error?.name ?? ""} code=${error?.code ?? ""} error=${error?.message ?? String(err)}`,
+      );
+      this.receiveBackoffMs =
+        this.receiveBackoffMs > 0
+          ? Math.min(this.receiveBackoffMs * 2, RECEIVE_BACKOFF_MAX_MS)
+          : RECEIVE_BACKOFF_MIN_MS;
     }
 
     if (this.polling) {
-      this.pollTimeoutId = setTimeout(() => this.poll(), 0);
+      this.pollTimeoutId = setTimeout(() => this.poll(), this.receiveBackoffMs);
     }
   }
 
   private async processMessage(message: Message): Promise<void> {
     const body = message.Body;
     if (!body) {
-      $log.warn("[event-broker] SQS message has no Body, deleting", {
-        messageId: message.MessageId,
-        queueUrl: this.config.sqs.queueUrl,
-      });
-      await this.deleteMessage(message);
+      await this.rejectOrDelete(message, "missing_body", "SQS message has no Body");
       return;
     }
 
     let parsed: SnsMessageBody;
     try {
       const raw = JSON.parse(body) as Record<string, unknown>;
-      if (
-        typeof raw.Message === "string" &&
-        (raw.Type === "Notification" || "TopicArn" in raw)
-      ) {
-        parsed = JSON.parse(raw.Message) as unknown as SnsMessageBody;
-      } else {
-        parsed = raw as unknown as SnsMessageBody;
-      }
+      parsed =
+        typeof raw.Message === "string" && (raw.Type === "Notification" || "TopicArn" in raw)
+          ? (JSON.parse(raw.Message) as unknown as SnsMessageBody)
+          : (raw as unknown as SnsMessageBody);
     } catch (parseErr) {
-      $log.warn("[event-broker] SQS message Body is not valid JSON, deleting", {
-        messageId: message.MessageId,
-        queueUrl: this.config.sqs.queueUrl,
-        error: (parseErr as Error)?.message,
-      });
-      await this.deleteMessage(message);
+      await this.rejectOrDelete(
+        message,
+        "invalid_json",
+        `SQS message Body is not valid JSON: ${(parseErr as Error)?.message}`,
+      );
       return;
     }
 
     const parsedEventType = parsed.eventType ?? parsed.event_type;
     const { payload, event_id } = parsed;
     if (!parsedEventType) {
-      $log.warn(
-        `[event-broker] SQS message missing eventType, deleting | messageId=${message.MessageId ?? "n/a"} queueUrl=${this.config.sqs.queueUrl}`,
-      );
-      await this.deleteMessage(message);
+      await this.rejectOrDelete(message, "missing_event_type", "SQS message missing eventType");
       return;
     }
 
     const eventId = event_id ?? uuid7();
-
-    $log.info(
-      `[event-broker] Consume | eventName=${parsedEventType} eventId=${eventId}`,
-    );
+    $log.info(`[event-broker] Consume | eventName=${parsedEventType} eventId=${eventId}`);
 
     const payloadWithEventId =
       typeof payload === "object" && payload !== null
         ? { ...payload, eventId }
         : { eventId, data: payload };
 
+    if (this.eventEmitter.listenerCount(parsedEventType) === 0) {
+      await this.rejectOrDelete(
+        message,
+        "no_listener_registered",
+        `no @OnSubscribe listener for ${parsedEventType}`,
+      );
+      return;
+    }
+
     try {
       await this.eventEmitter.emitAsync(parsedEventType, payloadWithEventId);
-    } finally {
+      await this.deleteMessage(message);
+    } catch (err) {
+      await this.handleHandlerFailure(message, parsedEventType, eventId, err);
+    }
+  }
+
+  /** No-DLQ-yet-safe rejection path for poison/unlistened messages: deletes unconditionally
+   * unless ackOnSuccess is on, matching processMessage's success/failure gating below. */
+  private async rejectOrDelete(message: Message, reason: string, detail: string): Promise<void> {
+    $log.warn(
+      `[event-broker] event.poisoned | reason=${reason} messageId=${message.MessageId ?? "n/a"} queueUrl=${this.config.sqs.queueUrl} detail=${detail}`,
+    );
+    if (this.config.sqs.ackOnSuccess) {
+      await this.rejectToDlq(message);
+    } else {
       await this.deleteMessage(message);
     }
+  }
+
+  private async handleHandlerFailure(
+    message: Message,
+    eventType: string,
+    eventId: string,
+    err: unknown,
+  ): Promise<void> {
+    const error = err as Error;
+
+    if (!this.config.sqs.ackOnSuccess) {
+      $log.warn(
+        `[event-broker] event.handler_failed | eventName=${eventType} eventId=${eventId} error=${error?.message}`,
+      );
+      await this.deleteMessage(message);
+      return;
+    }
+
+    if (error instanceof NonRetryableEventError) {
+      $log.warn(
+        `[event-broker] event.poisoned | reason=non_retryable eventName=${eventType} eventId=${eventId} error=${error.message}`,
+      );
+      await this.rejectToDlq(message);
+      return;
+    }
+
+    $log.warn(
+      `[event-broker] event.handler_failed | eventName=${eventType} eventId=${eventId} error=${error?.message}`,
+    );
+    const receiveCount = Number(message.Attributes?.ApproximateReceiveCount ?? 1);
+    await this.backoff(message, receiveCount);
+  }
+
+  /** Leaves the message undeleted with zero visibility so it's immediately eligible for
+   * redelivery; once the queue has a RedrivePolicy, maxReceiveCount carries it to the DLQ with
+   * its source intact. Sending it to a DLQ by hand instead would break native one-click redrive. */
+  private async rejectToDlq(message: Message): Promise<void> {
+    if (!message.ReceiptHandle) return;
+    await this.client.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl: this.config.sqs.queueUrl,
+        ReceiptHandle: message.ReceiptHandle,
+        VisibilityTimeout: 0,
+      }),
+    );
+  }
+
+  private async backoff(message: Message, receiveCount: number): Promise<void> {
+    if (!message.ReceiptHandle) return;
+    const capped = Math.min(
+      HANDLER_BACKOFF_MIN_SEC * 2 ** (receiveCount - 1),
+      HANDLER_BACKOFF_MAX_SEC,
+    );
+    const jittered = Math.floor(capped * (0.5 + Math.random() * 0.5));
+    await this.client.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl: this.config.sqs.queueUrl,
+        ReceiptHandle: message.ReceiptHandle,
+        VisibilityTimeout: jittered,
+      }),
+    );
   }
 
   private async deleteMessage(message: Message): Promise<void> {

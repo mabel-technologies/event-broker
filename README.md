@@ -103,6 +103,34 @@ export class UserEventHandler {
 | `sqs.enabled` | boolean | If `false`, SQS consumer does not poll |
 | `sqs.maxMessages` | number | Max messages per ReceiveMessage call (default: 10) |
 | `sqs.pollingWaitTimeSeconds` | number | Long poll wait time in seconds (default: 20) |
+| `sqs.ackOnSuccess` | boolean | Default `false` (unchanged behaviour: every message is deleted regardless of outcome). See "Failure handling" below before setting `true`. |
+
+## Failure handling
+
+By default (`sqs.ackOnSuccess` unset or `false`) the consumer's behaviour is exactly what it has
+always been: every message is deleted after being handed to its listener, whether or not the
+listener succeeded. **Do not set `ackOnSuccess: true` until the target queue has a DLQ with a
+`RedrivePolicy`** — without one, a permanently-failing message will just cycle every visibility
+timeout with nowhere to go.
+
+With `ackOnSuccess: true`:
+
+- A message is deleted **only** if every listener resolves.
+- A listener throwing `NonRetryableEventError` (exported from this package) sends the message
+  straight to the DLQ path — use this for failures that can never succeed on retry (e.g. payload
+  validation). Everything else a listener throws is treated as **retryable by default** and gets
+  exponential backoff with jitter via `ChangeMessageVisibility`.
+- A message with no registered `@OnSubscribe` listener, an unparseable body, or a missing
+  `eventType` is also routed to the DLQ path rather than silently deleted.
+- "Routed to the DLQ path" means the message is left on the queue with its visibility set to 0
+  (immediately redeliverable) rather than sent to a DLQ by hand — this lets SQS's own
+  `RedrivePolicy`/`maxReceiveCount` carry it to the DLQ natively, which keeps one-click redrive
+  (`StartMessageMoveTask`) working. A hand-moved message loses that.
+
+Log lines are labelled `event.receive_failed` (the `ReceiveMessage` call itself failed),
+`event.handler_failed` (a listener threw and the message was backed off or, in legacy mode,
+deleted anyway), and `event.poisoned` (routed to the DLQ path) — use these to distinguish a queue
+that's unreachable from a handler that's actually broken.
 
 ## Local development (linking from another app)
 
