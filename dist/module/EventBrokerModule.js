@@ -28,10 +28,10 @@ let EventBrokerModule = EventBrokerModule_1 = class EventBrokerModule {
         return [EventBrokerModule_1];
     }
     $onInit() {
-        this.sqsConsumer.start();
+        return this.sqsConsumer.start();
     }
     $onDestroy() {
-        this.sqsConsumer.stop();
+        return this.sqsConsumer.stop();
     }
 };
 EventBrokerModule = EventBrokerModule_1 = __decorate([

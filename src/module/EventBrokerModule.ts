@@ -19,11 +19,11 @@ export class EventBrokerModule {
     return [EventBrokerModule];
   }
 
-  $onInit(): void {
-    this.sqsConsumer.start();
+  $onInit(): Promise<void> {
+    return this.sqsConsumer.start();
   }
 
-  $onDestroy(): void {
-    this.sqsConsumer.stop();
+  $onDestroy(): Promise<void> {
+    return this.sqsConsumer.stop();
   }
 }

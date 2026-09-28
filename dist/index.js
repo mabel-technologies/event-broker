@@ -5,3 +5,5 @@ export * from "./types/EventBrokerConfig.js";
 export { setEventBrokerConfig, getEventBrokerConfig } from "./config/eventBrokerConfig.js";
 export { SnsPublisher, EVENT_BROKER_CONFIG, EVENT_BROKER_CONFIG_OPTIONS, } from "./publisher/SnsPublisher.js";
 export { SqsConsumer } from "./consumer/SqsConsumer.js";
+export { NonRetryableEventError } from "./errors/NonRetryableEventError.js";
+export { RetryableEventError } from "./errors/RetryableEventError.js";

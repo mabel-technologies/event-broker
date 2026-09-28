@@ -11,3 +11,5 @@ export {
   BrokerPayloadWithEventId,
 } from "./publisher/SnsPublisher.js";
 export { SqsConsumer } from "./consumer/SqsConsumer.js";
+export { NonRetryableEventError } from "./errors/NonRetryableEventError.js";
+export { RetryableEventError } from "./errors/RetryableEventError.js";

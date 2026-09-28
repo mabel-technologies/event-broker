@@ -7,6 +7,6 @@ export declare class EventBrokerModule {
      * With Ts.ED Configuration approach, add eventBroker to @Configuration({ eventBroker: {...} }) and use imports: [EventBrokerModule].
      */
     static forRoot(_config: import("../types/EventBrokerConfig.js").EventBrokerConfig): [typeof EventBrokerModule];
-    $onInit(): void;
-    $onDestroy(): void;
+    $onInit(): Promise<void>;
+    $onDestroy(): Promise<void>;
 }
